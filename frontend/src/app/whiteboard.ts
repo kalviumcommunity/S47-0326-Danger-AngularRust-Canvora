@@ -5,24 +5,52 @@ import { DrawPoint, DrawSegment } from './models/draw-models';
   selector: 'app-whiteboard',
   standalone: true,
   template: `
-    <section class="whiteboard-shell">
-      <h2>Whiteboard</h2>
-      <canvas #canvas width="900" height="520" class="whiteboard-canvas"></canvas>
-    </section>
+    <div class="whiteboard-app">
+      <aside class="toolbar">
+        <h3>Tools</h3>
+        <button (click)="clearCanvas()">Clear</button>
+        <p>Status: {{ drawing ? 'Drawing...' : 'Ready' }}</p>
+      </aside>
+      <section class="canvas-section">
+        <h2>Whiteboard</h2>
+        <canvas #canvas width="900" height="520" class="whiteboard-canvas"></canvas>
+      </section>
+    </div>
   `,
   styles: [
     `
-      .whiteboard-shell {
+      .whiteboard-app {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 1rem;
+        padding: 1rem;
+        min-height: calc(100vh - 60px);
+      }
+
+      .toolbar {
+        background: #f5f5f5;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        padding: 1rem;
+      }
+
+      .canvas-section {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 1rem;
+        gap: 0.75rem;
       }
+
       .whiteboard-canvas {
+        width: 100%;
+        height: 520px;
         border: 1px solid #aaa;
         background: #fff;
         touch-action: none;
+      }
+
+      button {
+        padding: 0.5rem 0.8rem;
+        font-size: 0.9rem;
       }
     `
   ]
@@ -111,5 +139,11 @@ export class WhiteboardComponent implements AfterViewInit {
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
+  };
+
+  clearCanvas() {
+    const canvas = this.canvasRef.nativeElement;
+    this.ctx.clearRect(0, 0, canvas.width, canvas.height);
+    this.strokes = [];
   };
 }
