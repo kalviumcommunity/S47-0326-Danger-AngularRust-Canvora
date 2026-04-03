@@ -1,7 +1,9 @@
-import { AfterViewInit, Component, ElementRef, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, ViewChild, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ToolButtonComponent } from './tool-button';
 import { DrawPoint, DrawSegment } from './models/draw-models';
+import { WhiteboardStateService, PenSettings } from './whiteboard-state.service';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-whiteboard',
@@ -13,8 +15,8 @@ import { DrawPoint, DrawSegment } from './models/draw-models';
         <h3>Tools</h3>
         <app-tool-button label="Clear" [action]="clearCanvas"></app-tool-button>
         <app-tool-button label="Reset" [action]="resetBoard"></app-tool-button>
-        <label>Color: <input type="color" [(ngModel)]="penColor" /></label>
-        <label>Width: <input type="range" min="1" max="10" [(ngModel)]="penWidth" /></label>
+        <label>Color: <input type="color" [(ngModel)]="penColor" (ngModelChange)="onColorChange($event)" /></label>
+        <label>Width: <input type="range" min="1" max="10" [(ngModel)]="penWidth" (ngModelChange)="onWidthChange($event)" /></label>
         <p>Status: {{ drawing ? 'Drawing...' : 'Ready' }}</p>
       </aside>
       <section class="canvas-section">
@@ -61,7 +63,7 @@ import { DrawPoint, DrawSegment } from './models/draw-models';
     `
   ]
 })
-export class WhiteboardComponent implements AfterViewInit {
+export class WhiteboardComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   private ctx!: CanvasRenderingContext2D;
@@ -71,7 +73,9 @@ export class WhiteboardComponent implements AfterViewInit {
   private lastX = 0;
   private lastY = 0;
   private currentStroke: DrawSegment | null = null;
-  private strokes: DrawSegment[] = [];
+  private subscriptions: Subscription[] = [];
+
+  constructor(private whiteboardState: WhiteboardStateService) {}
 
   ngAfterViewInit() {
     const canvas = this.canvasRef.nativeElement;
@@ -90,6 +94,29 @@ export class WhiteboardComponent implements AfterViewInit {
     canvas.addEventListener('pointerup', this.endDraw);
     canvas.addEventListener('pointercancel', this.endDraw);
     canvas.addEventListener('pointerleave', this.endDraw);
+
+    // Subscribe to state changes
+    this.subscriptions.push(
+      this.whiteboardState.segments$.subscribe(segments => {
+        this.redrawCanvas(segments);
+      })
+    );
+
+    this.subscriptions.push(
+      this.whiteboardState.penSettings$.subscribe(settings => {
+        this.penColor = settings.color;
+        this.penWidth = settings.width;
+      })
+    );
+
+    // Initialize from service
+    this.penColor = this.whiteboardState.penSettings.color;
+    this.penWidth = this.whiteboardState.penSettings.width;
+  }
+
+  ngOnDestroy() {
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+    window.removeEventListener('resize', this.resizeCanvas);
   }
 
   private startDraw = (event: PointerEvent) => {
@@ -104,8 +131,8 @@ export class WhiteboardComponent implements AfterViewInit {
       id: crypto.randomUUID(),
       userId: 'local',
       points: [startPoint],
-      color: '#333',
-      width: 2
+      color: this.penColor,
+      width: this.penWidth
     };
 
     this.lastX = startPoint.x;
@@ -142,7 +169,7 @@ export class WhiteboardComponent implements AfterViewInit {
     this.drawing = false;
 
     if (this.currentStroke) {
-      this.strokes.push(this.currentStroke);
+      this.whiteboardState.addSegment(this.currentStroke);
       this.currentStroke = null;
     }
 
@@ -152,17 +179,42 @@ export class WhiteboardComponent implements AfterViewInit {
     }
   };
 
-  clearCanvas() {
-    const canvas = this.canvasRef.nativeElement;
-    this.ctx.clearRect(0, 0, canvas.width, canvas.height);
-    this.strokes = [];
-  }
+  clearCanvas = () => {
+    this.whiteboardState.clearSegments();
+  };
 
   resetBoard = () => {
-    this.penColor = '#333333';
-    this.penWidth = 2;
-    this.clearCanvas();
+    this.whiteboardState.updatePenSettings({ color: '#333333', width: 2 });
+    this.whiteboardState.clearSegments();
   };
+
+  onColorChange(color: string) {
+    this.whiteboardState.updatePenSettings({ color });
+  }
+
+  onWidthChange(width: number) {
+    this.whiteboardState.updatePenSettings({ width });
+  }
+
+  private redrawCanvas(segments: DrawSegment[]) {
+    const canvas = this.canvasRef.nativeElement;
+    this.ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    segments.forEach(segment => {
+      if (segment.points.length < 2) return;
+
+      this.ctx.beginPath();
+      this.ctx.strokeStyle = segment.color;
+      this.ctx.lineWidth = segment.width;
+      this.ctx.lineCap = 'round';
+
+      this.ctx.moveTo(segment.points[0].x, segment.points[0].y);
+      for (let i = 1; i < segment.points.length; i++) {
+        this.ctx.lineTo(segment.points[i].x, segment.points[i].y);
+      }
+      this.ctx.stroke();
+    });
+  }
 
   private resizeCanvas = () => {
     const canvas = this.canvasRef.nativeElement;
@@ -173,5 +225,5 @@ export class WhiteboardComponent implements AfterViewInit {
     canvas.width = newWidth;
     canvas.height = newHeight;
     this.ctx.putImageData(imageData, 0, 0);
-  };;
+  };
 }
