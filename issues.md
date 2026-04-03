@@ -47,4 +47,4 @@
 - #4 Backend: Design Type-Safe Rest API Contracts (https://github.com/kalviumcommunity/S47-0326-Danger-AngularRust-Canvora/issues/4)
 - #3 Architecture: Design Modern Web Architecture & WS Topologies (https://github.com/kalviumcommunity/S47-0326-Danger-AngularRust-Canvora/issues/3)
 - #2 Product: Define Minimum Viable Product (MVP) Scope (https://github.com/kalviumcommunity/S47-0326-Danger-AngularRust-Canvora/issues/2)
-- #1 Architecture: Technology Orientation & Evaluation for Real-Time Whiteboard (https://github.com/kalviumcommunity/S47-0326-Danger-AngularRust-Canvora/issues/1)
+- #1 Architecture: Technology Orientation & Evaluation for Real-Time Whiteboard (https://github.com/kalviumcommunity/S47-0326-Danger-AngularRust-Canvora/issues/1) // 1st issue completed.
