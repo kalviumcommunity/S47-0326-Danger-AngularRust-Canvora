@@ -59,7 +59,7 @@ export class WhiteboardComponent implements AfterViewInit {
   @ViewChild('canvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   private ctx!: CanvasRenderingContext2D;
-  private drawing = false;
+  drawing = false;
   private lastX = 0;
   private lastY = 0;
   private currentStroke: DrawSegment | null = null;
@@ -73,6 +73,9 @@ export class WhiteboardComponent implements AfterViewInit {
     }
 
     this.ctx = context;
+
+    window.addEventListener('resize', this.resizeCanvas);
+    this.resizeCanvas();
 
     canvas.addEventListener('pointerdown', this.startDraw);
     canvas.addEventListener('pointermove', this.draw);
@@ -145,5 +148,16 @@ export class WhiteboardComponent implements AfterViewInit {
     const canvas = this.canvasRef.nativeElement;
     this.ctx.clearRect(0, 0, canvas.width, canvas.height);
     this.strokes = [];
-  };
+  }
+
+  private resizeCanvas = () => {
+    const canvas = this.canvasRef.nativeElement;
+    const newWidth = Math.max(window.innerWidth - 220, 800);
+    const newHeight = Math.max(window.innerHeight - 200, 520);
+
+    const imageData = this.ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+    this.ctx.putImageData(imageData, 0, 0);
+  };;
 }
