@@ -2,7 +2,7 @@ import { AfterViewInit, Component, ElementRef, ViewChild, OnDestroy } from '@ang
 import { FormsModule } from '@angular/forms';
 import { ToolButtonComponent } from './tool-button';
 import { DrawPoint, DrawSegment } from './models/draw-models';
-import { WhiteboardStateService, PenSettings } from './whiteboard-state.service';
+import { WhiteboardStateService } from './whiteboard-state.service';
 import { Subscription } from 'rxjs';
 
 @Component({
