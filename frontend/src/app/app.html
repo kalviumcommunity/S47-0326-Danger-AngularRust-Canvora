@@ -1,4 +1,8 @@
-﻿<main class="main" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh;">
-  <h1>Simple Whiteboard App</h1>
-  <app-whiteboard></app-whiteboard>
+﻿<header style="display:flex; gap:1rem; align-items:center; justify-content:center; padding:1rem;">
+  <a routerLink="/whiteboard">Whiteboard</a>
+  <a routerLink="/login">Login</a>
+</header>
+
+<main style="padding:1rem;">
+  <router-outlet></router-outlet>
 </main>

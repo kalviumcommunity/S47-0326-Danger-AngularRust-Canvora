@@ -1,10 +1,10 @@
 import { Component, signal } from '@angular/core';
-import { WhiteboardComponent } from './whiteboard';
+import { RouterOutlet } from '@angular/router';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [WhiteboardComponent],
+  imports: [RouterOutlet],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
