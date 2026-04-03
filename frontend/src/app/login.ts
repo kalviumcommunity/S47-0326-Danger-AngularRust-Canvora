@@ -1,9 +1,8 @@
 import { Component } from '@angular/core';
 import { ReactiveFormsModule, FormGroup, FormControl, Validators } from '@angular/forms';
-
 import { CommonModule } from '@angular/common';
-
 import { Router } from '@angular/router';
+import { AuthService } from './auth.service';
 
 @Component({
   selector: 'app-login',
@@ -45,13 +44,17 @@ export class LoginComponent {
     ])
   });
 
-  constructor(private router: Router) {}
+  constructor(private router: Router, private authService: AuthService) {}
 
   onSubmit() {
     if (this.loginForm.valid) {
-      // Simulate authentication
-      localStorage.setItem('authenticated', 'true');
-      this.router.navigate(['/whiteboard']);
+      const success = this.authService.login(
+        this.loginForm.value.username!,
+        this.loginForm.value.password!
+      );
+      if (success) {
+        this.router.navigate(['/whiteboard']);
+      }
     }
   }
 }
