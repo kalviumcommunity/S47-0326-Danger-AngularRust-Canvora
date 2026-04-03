@@ -8,6 +8,7 @@
   "scripts": {
     "frontend:install": "cd frontend && npm install",
     "frontend:start": "cd frontend && npx ng serve --port=4300",
+    "frontend:build": "cd frontend && npx ng build --prod",
     "backend:start": "cd backend && cargo run",
     "dev": "concurrently \"npm run frontend:start\" \"npm run backend:start\"",
     "lint": "echo \"No root linting setup\""
