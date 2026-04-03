@@ -1,4 +1,5 @@
 import { AfterViewInit, Component, ElementRef, ViewChild } from '@angular/core';
+import { DrawPoint, DrawSegment } from './models/draw-models';
 
 @Component({
   selector: 'app-whiteboard',
@@ -33,6 +34,8 @@ export class WhiteboardComponent implements AfterViewInit {
   private drawing = false;
   private lastX = 0;
   private lastY = 0;
+  private currentStroke: DrawSegment | null = null;
+  private strokes: DrawSegment[] = [];
 
   ngAfterViewInit() {
     const canvas = this.canvasRef.nativeElement;
@@ -57,8 +60,17 @@ export class WhiteboardComponent implements AfterViewInit {
     const canvas = this.canvasRef.nativeElement;
     canvas.setPointerCapture(event.pointerId);
 
-    this.lastX = event.offsetX;
-    this.lastY = event.offsetY;
+    const startPoint: DrawPoint = { x: event.offsetX, y: event.offsetY };
+    this.currentStroke = {
+      id: crypto.randomUUID(),
+      userId: 'local',
+      points: [startPoint],
+      color: '#333',
+      width: 2
+    };
+
+    this.lastX = startPoint.x;
+    this.lastY = startPoint.y;
   };
 
   private draw = (event: PointerEvent) => {
@@ -78,6 +90,10 @@ export class WhiteboardComponent implements AfterViewInit {
     this.ctx.lineCap = 'round';
     this.ctx.stroke();
 
+    if (this.currentStroke) {
+      this.currentStroke.points.push({ x, y });
+    }
+
     this.lastX = x;
     this.lastY = y;
   };
@@ -85,6 +101,11 @@ export class WhiteboardComponent implements AfterViewInit {
   private endDraw = (event: PointerEvent) => {
     event.preventDefault();
     this.drawing = false;
+
+    if (this.currentStroke) {
+      this.strokes.push(this.currentStroke);
+      this.currentStroke = null;
+    }
 
     const canvas = this.canvasRef.nativeElement;
     if (canvas.hasPointerCapture(event.pointerId)) {
