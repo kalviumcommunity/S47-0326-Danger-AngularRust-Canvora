@@ -1,16 +1,18 @@
 import { AfterViewInit, Component, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ToolButtonComponent } from './tool-button';
 import { DrawPoint, DrawSegment } from './models/draw-models';
 
 @Component({
   selector: 'app-whiteboard',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ToolButtonComponent],
   template: `
     <div class="whiteboard-app">
       <aside class="toolbar">
         <h3>Tools</h3>
-        <button (click)="clearCanvas()">Clear</button>
+        <app-tool-button label="Clear" [action]="clearCanvas"></app-tool-button>
+        <app-tool-button label="Reset" [action]="resetBoard"></app-tool-button>
         <label>Color: <input type="color" [(ngModel)]="penColor" /></label>
         <label>Width: <input type="range" min="1" max="10" [(ngModel)]="penWidth" /></label>
         <p>Status: {{ drawing ? 'Drawing...' : 'Ready' }}</p>
@@ -155,6 +157,12 @@ export class WhiteboardComponent implements AfterViewInit {
     this.ctx.clearRect(0, 0, canvas.width, canvas.height);
     this.strokes = [];
   }
+
+  resetBoard = () => {
+    this.penColor = '#333333';
+    this.penWidth = 2;
+    this.clearCanvas();
+  };
 
   private resizeCanvas = () => {
     const canvas = this.canvasRef.nativeElement;
