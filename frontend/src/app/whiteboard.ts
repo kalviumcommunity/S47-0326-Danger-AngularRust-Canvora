@@ -1,14 +1,18 @@
 import { AfterViewInit, Component, ElementRef, ViewChild } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { DrawPoint, DrawSegment } from './models/draw-models';
 
 @Component({
   selector: 'app-whiteboard',
   standalone: true,
+  imports: [FormsModule],
   template: `
     <div class="whiteboard-app">
       <aside class="toolbar">
         <h3>Tools</h3>
         <button (click)="clearCanvas()">Clear</button>
+        <label>Color: <input type="color" [(ngModel)]="penColor" /></label>
+        <label>Width: <input type="range" min="1" max="10" [(ngModel)]="penWidth" /></label>
         <p>Status: {{ drawing ? 'Drawing...' : 'Ready' }}</p>
       </aside>
       <section class="canvas-section">
@@ -60,6 +64,8 @@ export class WhiteboardComponent implements AfterViewInit {
 
   private ctx!: CanvasRenderingContext2D;
   drawing = false;
+  penColor = '#333333';
+  penWidth = 2;
   private lastX = 0;
   private lastY = 0;
   private currentStroke: DrawSegment | null = null;
@@ -116,8 +122,8 @@ export class WhiteboardComponent implements AfterViewInit {
     this.ctx.beginPath();
     this.ctx.moveTo(this.lastX, this.lastY);
     this.ctx.lineTo(x, y);
-    this.ctx.strokeStyle = '#333';
-    this.ctx.lineWidth = 2;
+    this.ctx.strokeStyle = this.penColor;
+    this.ctx.lineWidth = this.penWidth;
     this.ctx.lineCap = 'round';
     this.ctx.stroke();
 
