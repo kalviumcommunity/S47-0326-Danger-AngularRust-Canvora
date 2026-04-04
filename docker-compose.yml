@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - canvora
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-whiteboard}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-whiteboard}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    env_file:
+      - .env
+    networks:
+      - canvora
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: ${BACKEND_HOST:-0.0.0.0}
+      PORT: ${BACKEND_PORT:-8080}
+      DATABASE_URL: ${DATABASE_URL}
+      RUST_LOG: ${RUST_LOG:-info}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:80}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:8080}
+    networks:
+      - canvora
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  canvora:
+    driver: bridge
+
+volumes:
+  db_data:
