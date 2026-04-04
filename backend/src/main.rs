@@ -6,6 +6,8 @@ use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DrawPoint {
@@ -22,14 +24,33 @@ pub struct DrawSegment {
     pub width: f32,
 }
 
+#[derive(Debug, Serialize)]
+pub struct HealthResponse {
+    pub status: String,
+    pub uptime_seconds: u64,
+    pub version: String,
+    pub timestamp: u64,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub board: Arc<Mutex<Vec<DrawSegment>>>,
+    pub start_time: SystemTime,
 }
 
 #[get("/health")]
-async fn health() -> impl Responder {
-    HttpResponse::Ok().body("OK")
+async fn health(state: Data<AppState>) -> impl Responder {
+    let now = SystemTime::now();
+    let uptime = now.duration_since(state.start_time).unwrap_or_default().as_secs();
+
+    let health = HealthResponse {
+        status: "healthy".to_string(),
+        uptime_seconds: uptime,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        timestamp: now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+    };
+
+    HttpResponse::Ok().json(health)
 }
 
 #[get("/state")]
@@ -62,6 +83,7 @@ async fn main() -> std::io::Result<()> {
 
     let app_state = Data::new(AppState {
         board: Arc::new(Mutex::new(Vec::new())),
+        start_time: SystemTime::now(),
     });
 
     HttpServer::new(move || {
