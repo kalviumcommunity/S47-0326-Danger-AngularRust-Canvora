@@ -1,4 +1,6 @@
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::types::Uuid;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,6 +13,48 @@ pub struct User {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DbUser {
+    pub id: Uuid,
+    pub email: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<DbUser> for User {
+    fn from(db: DbUser) -> Self {
+        Self {
+            id: db.id.to_string(),
+            email: db.email,
+            name: db.name,
+            created_at: db.created_at.timestamp() as u64,
+            updated_at: db.updated_at.timestamp() as u64,
+        }
+    }
+}
+
+impl From<User> for DbUser {
+    fn from(user: User) -> Self {
+        let created_at = DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp_opt(user.created_at as i64, 0).unwrap_or_else(|| Utc::now().naive_utc()),
+            Utc,
+        );
+        let updated_at = DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp_opt(user.updated_at as i64, 0).unwrap_or_else(|| Utc::now().naive_utc()),
+            Utc,
+        );
+
+        Self {
+            id: Uuid::parse_str(&user.id).unwrap_or_else(|_| Uuid::new_v4()),
+            email: user.email,
+            name: user.name,
+            created_at,
+            updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Board {
     pub id: String,
     pub name: String,
@@ -18,6 +62,51 @@ pub struct Board {
     pub created_at: u64,
     pub updated_at: u64,
     pub is_public: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DbBoard {
+    pub id: Uuid,
+    pub name: String,
+    pub owner_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub is_public: bool,
+}
+
+impl From<DbBoard> for Board {
+    fn from(db: DbBoard) -> Self {
+        Self {
+            id: db.id.to_string(),
+            name: db.name,
+            owner_id: db.owner_id.to_string(),
+            created_at: db.created_at.timestamp() as u64,
+            updated_at: db.updated_at.timestamp() as u64,
+            is_public: db.is_public,
+        }
+    }
+}
+
+impl From<Board> for DbBoard {
+    fn from(board: Board) -> Self {
+        let created_at = DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp_opt(board.created_at as i64, 0).unwrap_or_else(|| Utc::now().naive_utc()),
+            Utc,
+        );
+        let updated_at = DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp_opt(board.updated_at as i64, 0).unwrap_or_else(|| Utc::now().naive_utc()),
+            Utc,
+        );
+
+        Self {
+            id: Uuid::parse_str(&board.id).unwrap_or_else(|_| Uuid::new_v4()),
+            name: board.name,
+            owner_id: Uuid::parse_str(&board.owner_id).unwrap_or_else(|_| Uuid::new_v4()),
+            created_at,
+            updated_at,
+            is_public: board.is_public,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,6 +134,50 @@ pub struct DrawSegment {
     pub color: String,
     pub width: f32,
     pub created_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DbDrawSegment {
+    pub id: Uuid,
+    pub board_id: Uuid,
+    pub user_id: Uuid,
+    pub points: Vec<DrawPoint>,
+    pub color: String,
+    pub width: f32,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<DbDrawSegment> for DrawSegment {
+    fn from(db: DbDrawSegment) -> Self {
+        Self {
+            id: db.id.to_string(),
+            board_id: db.board_id.to_string(),
+            user_id: db.user_id.to_string(),
+            points: db.points,
+            color: db.color,
+            width: db.width,
+            created_at: db.created_at.timestamp() as u64,
+        }
+    }
+}
+
+impl From<DrawSegment> for DbDrawSegment {
+    fn from(segment: DrawSegment) -> Self {
+        let created_at = DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp_opt(segment.created_at as i64, 0).unwrap_or_else(|| Utc::now().naive_utc()),
+            Utc,
+        );
+
+        Self {
+            id: Uuid::parse_str(&segment.id).unwrap_or_else(|_| Uuid::new_v4()),
+            board_id: Uuid::parse_str(&segment.board_id).unwrap_or_else(|_| Uuid::new_v4()),
+            user_id: Uuid::parse_str(&segment.user_id).unwrap_or_else(|_| Uuid::new_v4()),
+            points: segment.points,
+            color: segment.color,
+            width: segment.width,
+            created_at,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

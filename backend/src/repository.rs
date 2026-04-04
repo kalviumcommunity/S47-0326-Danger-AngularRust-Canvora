@@ -1,6 +1,6 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Result};
-use std::collections::HashMap;
 use crate::models::*;
 
 /// Generic repository trait for CRUD operations
@@ -209,6 +209,20 @@ impl BoardRepository {
         sqlx::query_as!(
             DbBoard,
             "SELECT id, name, owner_id, created_at, updated_at, is_public FROM boards WHERE is_public = true ORDER BY created_at DESC"
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn find_page(&self, cursor_created_at: Option<DateTime<Utc>>, limit: i64) -> Result<Vec<DbBoard>> {
+        sqlx::query_as!(
+            DbBoard,
+            "SELECT id, name, owner_id, created_at, updated_at, is_public FROM boards
+             WHERE $1::timestamptz IS NULL OR created_at < $1
+             ORDER BY created_at DESC
+             LIMIT $2",
+            cursor_created_at,
+            limit
         )
         .fetch_all(&self.pool)
         .await

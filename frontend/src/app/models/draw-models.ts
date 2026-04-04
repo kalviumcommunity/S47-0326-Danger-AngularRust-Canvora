@@ -5,8 +5,10 @@ export interface DrawPoint {
 
 export interface DrawSegment {
   id: string;
-  userId: string;
+  board_id: string;
+  user_id: string;
   points: DrawPoint[];
   color: string;
   width: number;
+  created_at: number;
 }
