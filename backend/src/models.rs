@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
@@ -155,6 +157,130 @@ impl DrawSegment {
             color,
             width,
             created_at: now,
+        }
+    }
+}
+
+// Database Models for PostgreSQL
+#[derive(Debug, FromRow, Serialize, Deserialize)]
+pub struct DbUser {
+    pub id: sqlx::types::Uuid,
+    pub email: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, FromRow, Serialize, Deserialize)]
+pub struct DbBoard {
+    pub id: sqlx::types::Uuid,
+    pub name: String,
+    pub owner_id: sqlx::types::Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub is_public: bool,
+}
+
+#[derive(Debug, FromRow, Serialize, Deserialize)]
+pub struct DbSession {
+    pub id: sqlx::types::Uuid,
+    pub user_id: sqlx::types::Uuid,
+    pub board_id: sqlx::types::Uuid,
+    pub token: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, FromRow, Serialize, Deserialize)]
+pub struct DbDrawSegment {
+    pub id: sqlx::types::Uuid,
+    pub board_id: sqlx::types::Uuid,
+    pub user_id: sqlx::types::Uuid,
+    pub points: serde_json::Value, // Store as JSON in DB
+    pub color: String,
+    pub width: f32,
+    pub created_at: DateTime<Utc>,
+}
+
+// Conversion implementations
+impl From<DbUser> for User {
+    fn from(db: DbUser) -> Self {
+        User {
+            id: db.id.to_string(),
+            email: db.email,
+            name: db.name,
+            created_at: db.created_at.timestamp() as u64,
+            updated_at: db.updated_at.timestamp() as u64,
+        }
+    }
+}
+
+impl From<User> for DbUser {
+    fn from(user: User) -> Self {
+        DbUser {
+            id: sqlx::types::Uuid::parse_str(&user.id).unwrap_or_else(|_| sqlx::types::Uuid::new_v4()),
+            email: user.email,
+            name: user.name,
+            created_at: DateTime::<Utc>::from_timestamp(user.created_at as i64, 0).unwrap_or_else(|| Utc::now()),
+            updated_at: DateTime::<Utc>::from_timestamp(user.updated_at as i64, 0).unwrap_or_else(|| Utc::now()),
+        }
+    }
+}
+
+impl From<DbBoard> for Board {
+    fn from(db: DbBoard) -> Self {
+        Board {
+            id: db.id.to_string(),
+            name: db.name,
+            owner_id: db.owner_id.to_string(),
+            created_at: db.created_at.timestamp() as u64,
+            updated_at: db.updated_at.timestamp() as u64,
+            is_public: db.is_public,
+        }
+    }
+}
+
+impl From<Board> for DbBoard {
+    fn from(board: Board) -> Self {
+        DbBoard {
+            id: sqlx::types::Uuid::parse_str(&board.id).unwrap_or_else(|_| sqlx::types::Uuid::new_v4()),
+            name: board.name,
+            owner_id: sqlx::types::Uuid::parse_str(&board.owner_id).unwrap_or_else(|_| sqlx::types::Uuid::new_v4()),
+            created_at: DateTime::<Utc>::from_timestamp(board.created_at as i64, 0).unwrap_or_else(|| Utc::now()),
+            updated_at: DateTime::<Utc>::from_timestamp(board.updated_at as i64, 0).unwrap_or_else(|| Utc::now()),
+            is_public: board.is_public,
+        }
+    }
+}
+
+impl From<DbDrawSegment> for DrawSegment {
+    fn from(db: DbDrawSegment) -> Self {
+        let points: Vec<DrawPoint> = serde_json::from_value(db.points).unwrap_or_default();
+
+        DrawSegment {
+            id: db.id.to_string(),
+            board_id: db.board_id.to_string(),
+            user_id: db.user_id.to_string(),
+            points,
+            color: db.color,
+            width: db.width,
+            created_at: db.created_at.timestamp() as u64,
+        }
+    }
+}
+
+impl From<DrawSegment> for DbDrawSegment {
+    fn from(segment: DrawSegment) -> Self {
+        let points = serde_json::to_value(&segment.points).unwrap_or(serde_json::Value::Array(vec![]));
+
+        DbDrawSegment {
+            id: sqlx::types::Uuid::parse_str(&segment.id).unwrap_or_else(|_| sqlx::types::Uuid::new_v4()),
+            board_id: sqlx::types::Uuid::parse_str(&segment.board_id).unwrap_or_else(|_| sqlx::types::Uuid::new_v4()),
+            user_id: sqlx::types::Uuid::parse_str(&segment.user_id).unwrap_or_else(|_| sqlx::types::Uuid::new_v4()),
+            points,
+            color: segment.color,
+            width: segment.width,
+            created_at: DateTime::<Utc>::from_timestamp(segment.created_at as i64, 0).unwrap_or_else(|| Utc::now()),
         }
     }
 }
