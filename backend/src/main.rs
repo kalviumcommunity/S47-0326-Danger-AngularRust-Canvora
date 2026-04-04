@@ -1,3 +1,6 @@
+mod models;
+mod migrations;
+
 use actix_web::{web, App, HttpServer, Responder, HttpResponse, post, get, Error as ActixError};
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
@@ -10,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::fmt;
 
 use models::*;
+use migrations::*;
 
 #[derive(Debug)]
 pub enum AppError {
@@ -190,8 +194,13 @@ async fn get_board_drawings(state: Data<AppState>, path: web::Path<String>) -> R
     Ok(HttpResponse::Ok().json(board_drawings))
 }
 
-async fn ws_handler() -> impl Responder {
-    HttpResponse::Ok().body("WebSocket endpoint - TODO")
+#[get("/migrations/status")]
+async fn get_migration_status_endpoint(state: Data<AppState>) -> Result<impl Responder, AppError> {
+    let status = get_migration_status(&state.db)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Failed to get migration status: {}", e)))?;
+
+    Ok(HttpResponse::Ok().json(status))
 }
 
 #[actix_web::main]
@@ -204,10 +213,25 @@ async fn main() -> std::io::Result<()> {
 
     println!("Starting server at http://{}", addr);
 
+    // Set up database connection
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:password@localhost/whiteboard".to_string());
+
+    let db = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .expect("Failed to connect to database");
+
+    println!("Connected to database");
+
+    // Run database migrations
+    println!("Running database migrations...");
+    run_migrations(&db).await.expect("Failed to run migrations");
+    println!("Migrations completed successfully");
+
     let app_state = Data::new(AppState {
-        board: Arc::new(Mutex::new(Vec::new())),
-        boards: Arc::new(Mutex::new(Vec::new())),
-        users: Arc::new(Mutex::new(Vec::new())),
+        db,
         start_time: SystemTime::now(),
     });
 
@@ -223,6 +247,7 @@ async fn main() -> std::io::Result<()> {
             .service(create_board)
             .service(get_board)
             .service(get_board_drawings)
+            .service(get_migration_status_endpoint)
             .route("/ws", web::get().to(ws_handler))
     })
     .bind(addr)?
