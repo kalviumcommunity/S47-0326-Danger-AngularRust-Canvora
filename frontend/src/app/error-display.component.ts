@@ -67,7 +67,7 @@ import { ErrorService, AppError } from './error.service';
 })
 export class ErrorDisplayComponent implements OnInit, OnDestroy {
   currentError: AppError | null = null;
-  private subscription!: Subscription;
+  private subscription?: Subscription;
 
   constructor(private errorService: ErrorService) {}
 
@@ -78,7 +78,7 @@ export class ErrorDisplayComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.subscription.unsubscribe();
+    this.subscription?.unsubscribe();
   }
 
   dismissError() {
