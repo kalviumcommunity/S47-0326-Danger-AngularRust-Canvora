@@ -6,7 +6,8 @@ import { RepositoryFactory } from './repositories/repository.factory';
 import { Board, CreateBoardRequest } from './models/board-models';
 import { DrawPoint, DrawSegment } from './models/draw-models';
 import { WhiteboardStateService } from './whiteboard-state.service';
-import { Subscription } from 'rxjs';
+import { Subject, Subscription, asyncScheduler } from 'rxjs';
+import { throttleTime } from 'rxjs/operators';
 
 @Component({
   selector: 'app-whiteboard',
@@ -94,6 +95,12 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
   private lastY = 0;
   private currentStroke: DrawSegment | null = null;
   private subscriptions: Subscription[] = [];
+  /** Throttled pointer samples (leading + trailing) for point payloads and network batching. */
+  private readonly drawSample$ = new Subject<{ x: number; y: number }>();
+  private drawSampleSub?: Subscription;
+  /** Points not yet sent over the wire during the active stroke (throttled samples). */
+  private netFlushBuffer: DrawPoint[] = [];
+  private netFlushTimer: ReturnType<typeof setInterval> | null = null;
   boards: Board[] = [];
   currentBoard: Board | null = null;
   selectedBoardId = '';
@@ -123,6 +130,18 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
     canvas.addEventListener('pointercancel', this.endDraw);
     canvas.addEventListener('pointerleave', this.endDraw);
 
+    this.drawSampleSub = this.drawSample$
+      .pipe(
+        throttleTime(50, asyncScheduler, { leading: true, trailing: true })
+      )
+      .subscribe(({ x, y }) => {
+        if (!this.currentStroke) {
+          return;
+        }
+        this.currentStroke.points.push({ x, y });
+        this.netFlushBuffer.push({ x, y });
+      });
+
     this.loadBoards();
 
     // Subscribe to state changes
@@ -146,6 +165,8 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy() {
     this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.drawSampleSub?.unsubscribe();
+    this.clearNetFlushTimer();
     window.removeEventListener('resize', this.resizeCanvas);
   }
 
@@ -169,6 +190,11 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
       created_at: Date.now()
     };
 
+    this.netFlushBuffer = [startPoint];
+
+    this.clearNetFlushTimer();
+    this.netFlushTimer = setInterval(() => this.flushNetworkDrawingBatch(), 100);
+
     this.lastX = startPoint.x;
     this.lastY = startPoint.y;
   };
@@ -190,9 +216,7 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
     this.ctx.lineCap = 'round';
     this.ctx.stroke();
 
-    if (this.currentStroke) {
-      this.currentStroke.points.push({ x, y });
-    }
+    this.drawSample$.next({ x, y });
 
     this.lastX = x;
     this.lastY = y;
@@ -201,19 +225,15 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
   private endDraw = (event: PointerEvent) => {
     event.preventDefault();
     this.drawing = false;
+    this.clearNetFlushTimer();
+    this.flushNetworkDrawingBatch();
 
     if (this.currentStroke) {
       this.whiteboardState.addSegment(this.currentStroke);
 
-      if (this.currentBoard) {
-        this.repositories.drawings().save(this.currentStroke).subscribe({
-          next: () => {},
-          error: (err) => console.error('Failed to save drawing segment', err)
-        });
-      }
-
       this.currentStroke = null;
     }
+    this.netFlushBuffer = [];
 
     const canvas = this.canvasRef.nativeElement;
     if (canvas.hasPointerCapture(event.pointerId)) {
@@ -256,6 +276,38 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
       }
       this.ctx.stroke();
     });
+  }
+
+  private flushNetworkDrawingBatch(): void {
+    if (!this.currentBoard || !this.currentStroke || this.netFlushBuffer.length < 2) {
+      return;
+    }
+
+    const base = this.currentStroke;
+    const segment: DrawSegment = {
+      id: crypto.randomUUID(),
+      board_id: base.board_id,
+      user_id: base.user_id,
+      points: [...this.netFlushBuffer],
+      color: base.color,
+      width: base.width,
+      created_at: base.created_at
+    };
+
+    this.repositories.drawings().saveBatch([segment]).subscribe({
+      next: () => {},
+      error: (err) => console.error('Failed to flush drawing batch', err)
+    });
+
+    const last = this.netFlushBuffer[this.netFlushBuffer.length - 1];
+    this.netFlushBuffer = [last];
+  }
+
+  private clearNetFlushTimer(): void {
+    if (this.netFlushTimer !== null) {
+      clearInterval(this.netFlushTimer);
+      this.netFlushTimer = null;
+    }
   }
 
   private resizeCanvas = () => {
