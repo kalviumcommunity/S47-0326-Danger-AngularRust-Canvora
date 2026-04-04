@@ -9,11 +9,12 @@ use actix_web::http::StatusCode;
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::fmt;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 
 use models::*;
+use migrations::*;
 
 #[derive(Debug)]
 pub enum AppError {
@@ -124,16 +125,30 @@ async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>
         return Err(AppError::ValidationError("Batch size too large (max 1000 segments)".to_string()));
     }
 
-    let mut board = state.board.lock().map_err(|_| AppError::LockError("Failed to acquire drawings lock".to_string()))?;
     let mut added_count = 0;
     for item in items.into_inner() {
-        board.push(item);
+        let db_segment: DbDrawSegment = item.into();
+
+        sqlx::query(
+            "INSERT INTO draw_segments (id, board_id, user_id, points, color, width, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        )
+        .bind(&db_segment.id)
+        .bind(&db_segment.board_id)
+        .bind(&db_segment.user_id)
+        .bind(&db_segment.points)
+        .bind(&db_segment.color)
+        .bind(&db_segment.width)
+        .bind(&db_segment.created_at)
+        .execute(&state.db)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Failed to save drawing batch: {}", e)))?;
+
         added_count += 1;
     }
+
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "success": true,
-        "added_count": added_count,
-        "total_segments": board.len()
+        "added_count": added_count
     })))
 }
 
@@ -214,8 +229,13 @@ async fn get_board_drawings(state: Data<AppState>, path: web::Path<String>) -> R
     Ok(HttpResponse::Ok().json(drawings))
 }
 
-async fn ws_handler() -> impl Responder {
-    HttpResponse::Ok().body("WebSocket endpoint - TODO")
+#[get("/migrations/status")]
+async fn get_migration_status_endpoint(state: Data<AppState>) -> Result<impl Responder, AppError> {
+    let status = get_migration_status(&state.db)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Failed to get migration status: {}", e)))?;
+
+    Ok(HttpResponse::Ok().json(status))
 }
 
 #[actix_web::main]
@@ -227,6 +247,23 @@ async fn main() -> std::io::Result<()> {
     let addr = format!("{}:{}", host, port);
 
     println!("Starting server at http://{}", addr);
+
+    // Set up database connection
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:password@localhost/whiteboard".to_string());
+
+    let db = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .expect("Failed to connect to database");
+
+    println!("Connected to database");
+
+    // Run database migrations
+    println!("Running database migrations...");
+    run_migrations(&db).await.expect("Failed to run migrations");
+    println!("Migrations completed successfully");
 
     let app_state = Data::new(AppState {
         db: db.clone(),
@@ -246,6 +283,7 @@ async fn main() -> std::io::Result<()> {
             .service(create_board)
             .service(get_board)
             .service(get_board_drawings)
+            .service(get_migration_status_endpoint)
             .route("/ws", web::get().to(ws_handler))
     })
     .bind(addr)?
