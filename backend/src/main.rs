@@ -6,8 +6,11 @@ use actix_cors::Cors;
 use actix_web::{http::header, web, App, HttpServer, Responder, HttpResponse, post, get};
 use actix_web::middleware::{DefaultHeaders, Logger};
 use actix_web::web::Data;
+use actix_web::HttpRequest;
+use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{DateTime, Utc};
 use dotenv::dotenv;
+use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, errors::Error as JwtError};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::env;
@@ -90,6 +93,42 @@ fn build_cors() -> Cors {
         .expose_headers([header::LINK])
         .supports_credentials()
         .max_age(3600)
+}
+
+fn generate_jwt(user_id: &str) -> Result<String, JwtError> {
+    let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| "default_secret".to_string());
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::hours(24))
+        .expect("valid timestamp")
+        .timestamp() as usize;
+
+    let claims = Claims {
+        sub: user_id.to_owned(),
+        exp: expiration,
+        iat: Utc::now().timestamp() as usize,
+    };
+
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(jwt_secret.as_ref()))
+}
+
+fn validate_jwt(token: &str) -> Result<Claims, JwtError> {
+    let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| "default_secret".to_string());
+    let validation = Validation::new(Algorithm::HS256);
+
+    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(jwt_secret.as_ref()), &validation)?;
+    Ok(token_data.claims)
+}
+
+async fn extract_user_id_from_request(req: &HttpRequest, state: &Data<AppState>) -> Result<String, AppError> {
+    let auth_header = req.headers().get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or_else(|| AppError::ValidationError("Missing or invalid Authorization header".to_string()))?;
+
+    let claims = validate_jwt(auth_header)
+        .map_err(|_| AppError::ValidationError("Invalid token".to_string()))?;
+
+    Ok(claims.sub)
 }
 
 #[get("/health")]
@@ -223,6 +262,85 @@ async fn get_migration_status_endpoint(state: Data<AppState>) -> Result<impl Res
     Ok(HttpResponse::Ok().json(status))
 }
 
+#[post("/auth/register")]
+async fn register(state: Data<AppState>, req: web::Json<RegisterRequest>) -> Result<impl Responder, AppError> {
+    // Validate input
+    if req.email.trim().is_empty() || req.name.trim().is_empty() || req.password.len() < 6 {
+        return Err(AppError::ValidationError("Invalid registration data".to_string()));
+    }
+
+    let repo = state.repositories.user_repository();
+
+    // Check if user already exists
+    if repo.find_by_email(&req.email).await
+        .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?
+        .is_some() {
+        return Err(AppError::ValidationError("User already exists".to_string()));
+    }
+
+    // Hash password
+    let password_hash = hash(&req.password, DEFAULT_COST)
+        .map_err(|_| AppError::InternalError("Failed to hash password".to_string()))?;
+
+    // Create user
+    let db_user = repo.create_user(&req.email, &req.name, &password_hash).await
+        .map_err(|e| AppError::InternalError(format!("Failed to create user: {}", e)))?;
+
+    let user = User::from(db_user);
+    let token = generate_jwt(&user.id)
+        .map_err(|_| AppError::InternalError("Failed to generate token".to_string()))?;
+
+    let expires_at = (Utc::now() + chrono::Duration::hours(24)).timestamp() as u64;
+
+    Ok(HttpResponse::Created().json(AuthResponse {
+        user,
+        token,
+        expires_at,
+    }))
+}
+
+#[post("/auth/login")]
+async fn login(state: Data<AppState>, req: web::Json<LoginRequest>) -> Result<impl Responder, AppError> {
+    let repo = state.repositories.user_repository();
+
+    // Find user by email
+    let db_user = repo.find_by_email(&req.email).await
+        .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?
+        .ok_or_else(|| AppError::ValidationError("Invalid credentials".to_string()))?;
+
+    // Verify password
+    if !verify(&req.password, &db_user.password_hash)
+        .map_err(|_| AppError::InternalError("Failed to verify password".to_string()))? {
+        return Err(AppError::ValidationError("Invalid credentials".to_string()));
+    }
+
+    let user = User::from(db_user);
+    let token = generate_jwt(&user.id)
+        .map_err(|_| AppError::InternalError("Failed to generate token".to_string()))?;
+
+    let expires_at = (Utc::now() + chrono::Duration::hours(24)).timestamp() as u64;
+
+    Ok(HttpResponse::Ok().json(AuthResponse {
+        user,
+        token,
+        expires_at,
+    }))
+}
+
+#[get("/auth/me")]
+async fn get_me(req: HttpRequest, state: Data<AppState>) -> Result<impl Responder, AppError> {
+    let user_id = extract_user_id_from_request(&req, &state).await?;
+    let uuid = sqlx::types::Uuid::parse_str(&user_id)
+        .map_err(|_| AppError::ValidationError("Invalid user ID".to_string()))?;
+
+    let repo = state.repositories.user_repository();
+    let db_user = repo.find_by_id(uuid).await
+        .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    Ok(HttpResponse::Ok().json(User::from(db_user)))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -233,32 +351,18 @@ async fn main() -> std::io::Result<()> {
 
     println!("Starting server at http://{}", addr);
 
-<<<<<<< HEAD
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/whiteboard".to_string());
-=======
-    // Set up database connection
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:password@localhost/whiteboard".to_string());
->>>>>>> aa9ae66b088cc8e9f6e30de269beaad9828bcb4d
 
     let db = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
-<<<<<<< HEAD
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to connect to database: {}", e)))?;
 
     run_migrations(&db)
         .await
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to run migrations: {}", e)))?;
-=======
-        .expect("Failed to connect to database");
-
-    println!("Connected to database");
-
-    // Run database migrations
-    println!("Running database migrations...");
     run_migrations(&db).await.expect("Failed to run migrations");
     println!("Migrations completed successfully");
 >>>>>>> aa9ae66b088cc8e9f6e30de269beaad9828bcb4d
@@ -281,6 +385,9 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .service(health)
             .service(get_state)
+            .service(register)
+            .service(login)
+            .service(get_me)
             .service(add_draw)
             .service(add_draw_batch)
             .service(get_boards)
