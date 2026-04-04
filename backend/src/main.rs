@@ -373,6 +373,19 @@ async fn get_me(req: HttpRequest, state: Data<AppState>) -> Result<impl Responde
     Ok(HttpResponse::Ok().json(User::from(db_user)))
 }
 
+fn require_env(key: &str) -> String {
+    match env::var(key) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => {
+            eprintln!(
+                "FATAL: environment variable `{key}` is missing or empty.\n\
+                 Copy the repository `.env.example` to `.env` and set required values."
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -383,8 +396,7 @@ async fn main() -> std::io::Result<()> {
 
     println!("Starting server at http://{}", addr);
 
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/whiteboard".to_string());
+    let database_url = require_env("DATABASE_URL");
 
     let db = PgPoolOptions::new()
         .max_connections(5)
