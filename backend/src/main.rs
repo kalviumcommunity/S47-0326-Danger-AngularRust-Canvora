@@ -2,6 +2,7 @@ mod models;
 mod migrations;
 mod repository;
 mod jwt;
+mod ws;
 
 use actix_cors::Cors;
 use actix_web::{http::header, web, App, HttpServer, Responder, HttpResponse, post, get};
@@ -22,6 +23,7 @@ use models::*;
 use migrations::*;
 use repository::*;
 use jwt::*;
+use ws::{ws_handler, WsHub};
 
 #[derive(Debug)]
 pub enum AppError {
@@ -76,6 +78,7 @@ pub struct AppState {
     pub db: PgPool,
     pub repositories: RepositoryFactory,
     pub start_time: SystemTime,
+    pub ws_hub: WsHub,
 }
 
 fn build_cors() -> Cors {
@@ -392,14 +395,13 @@ async fn main() -> std::io::Result<()> {
     run_migrations(&db)
         .await
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to run migrations: {}", e)))?;
-    run_migrations(&db).await.expect("Failed to run migrations");
     println!("Migrations completed successfully");
->>>>>>> aa9ae66b088cc8e9f6e30de269beaad9828bcb4d
 
     let app_state = Data::new(AppState {
         db: db.clone(),
         repositories: RepositoryFactory::new(db),
         start_time: SystemTime::now(),
+        ws_hub: WsHub::new(),
     });
 
     HttpServer::new(move || {
@@ -424,7 +426,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_board)
             .service(get_board_drawings)
             .service(get_migration_status_endpoint)
-            .route("/ws", web::get().to(ws_handler))
+            .route("/ws/{room}", web::get().to(ws_handler))
     })
     .bind(addr)?
     .run()
