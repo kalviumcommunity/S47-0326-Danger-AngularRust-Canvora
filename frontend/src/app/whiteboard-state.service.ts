@@ -30,11 +30,6 @@ export class WhiteboardStateService {
     const current = this.segmentsSubject.value;
     this.segmentsSubject.next([...current, segment]);
     this.saveState();
-    // Save to API
-    this.apiService.saveDrawingSegment(segment).subscribe({
-      next: () => console.log('Segment saved to API'),
-      error: (err) => console.error('Failed to save segment to API', err)
-    });
   }
 
   setSegments(segments: DrawSegment[]): void {
