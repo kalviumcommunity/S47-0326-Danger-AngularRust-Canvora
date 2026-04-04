@@ -3,6 +3,7 @@ import { ReactiveFormsModule, FormGroup, FormControl, Validators } from '@angula
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { AuthService } from './auth.service';
+import { ErrorService } from './error.service';
 
 @Component({
   selector: 'app-login',
@@ -29,7 +30,7 @@ import { AuthService } from './auth.service';
             <div *ngIf="loginForm.get('password')?.errors?.['pattern']">Password must contain uppercase, lowercase, number, and special character</div>
           </div>
         </div>
-        <button type="submit" [disabled]="loginForm.invalid">Login</button>
+        <button type="submit" [disabled]="loginForm.invalid || isLoading">Login</button>
       </form>
     </div>
   `
@@ -44,17 +45,33 @@ export class LoginComponent {
     ])
   });
 
-  constructor(private router: Router, private authService: AuthService) {}
+  isLoading = false;
+
+  constructor(
+    private router: Router,
+    private authService: AuthService,
+    private errorService: ErrorService
+  ) {}
 
   onSubmit() {
     if (this.loginForm.valid) {
-      const success = this.authService.login(
+      this.isLoading = true;
+      this.authService.login(
         this.loginForm.value.username!,
         this.loginForm.value.password!
-      );
-      if (success) {
-        this.router.navigate(['/whiteboard']);
-      }
+      ).subscribe({
+        next: (response) => {
+          this.authService.setAuthData(response);
+          this.router.navigate(['/whiteboard']);
+        },
+        error: (error) => {
+          this.errorService.showError('Login failed. Please check your credentials.');
+          this.isLoading = false;
+        },
+        complete: () => {
+          this.isLoading = false;
+        }
+      });
     }
   }
 }
