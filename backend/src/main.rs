@@ -1,3 +1,5 @@
+mod models;
+
 use actix_web::{web, App, HttpServer, Responder, HttpResponse};
 use actix_web::get;
 use actix_web::middleware::Logger;
@@ -9,20 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DrawPoint {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DrawSegment {
-    pub id: String,
-    pub user_id: String,
-    pub points: Vec<DrawPoint>,
-    pub color: String,
-    pub width: f32,
-}
+use models::*;
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
