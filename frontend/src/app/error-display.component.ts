@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
-import { ErrorService, AppError } from '../error.service';
+import { ErrorService, AppError } from './error.service';
 
 @Component({
   selector: 'app-error-display',
@@ -72,7 +72,7 @@ export class ErrorDisplayComponent implements OnInit, OnDestroy {
   constructor(private errorService: ErrorService) {}
 
   ngOnInit() {
-    this.subscription = this.errorService.error$.subscribe(error => {
+    this.subscription = this.errorService.error$.subscribe((error: AppError | null) => {
       this.currentError = error;
     });
   }

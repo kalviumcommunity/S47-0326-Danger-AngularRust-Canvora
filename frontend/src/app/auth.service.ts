@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
+import { API_BASE_URL } from './api-config';
 
 interface LoginResponse {
   user: { id: string; email: string; name: string };
@@ -17,6 +18,10 @@ export class AuthService {
   public isAuthenticated$ = this.isAuthenticatedSubject.asObservable();
   public currentUser$ = this.currentUserSubject.asObservable();
 
+  /**
+   * Tokens are stored in localStorage for SPA simplicity. HttpOnly cookies are safer against XSS
+   * but require cookie-aware CORS and backend session plumbing; keep scripts and deps trusted.
+   */
   private readonly TOKEN_KEY = 'auth_token';
   private readonly USER_KEY = 'auth_user';
   private readonly EXPIRES_KEY = 'auth_expires';
@@ -26,7 +31,7 @@ export class AuthService {
   }
 
   login(email: string, password: string): Observable<LoginResponse> {
-    return this.http.post<LoginResponse>('http://127.0.0.1:8080/login', { email, password });
+    return this.http.post<LoginResponse>(`${API_BASE_URL}/login`, { email, password });
   }
 
   setAuthData(response: LoginResponse): void {
