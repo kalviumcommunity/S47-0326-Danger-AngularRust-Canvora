@@ -1,10 +1,14 @@
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use serde::{Deserialize, Serialize};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm};
+use std::env;
 
-use crate::models::{Claims, DbUser, User};
+use crate::models::{Claims, DbUser};
 
-const JWT_SECRET: &str = "your-secret-key"; // In production, use environment variable
+fn jwt_secret_bytes() -> Vec<u8> {
+    env::var("JWT_SECRET")
+        .unwrap_or_else(|_| "default_secret".to_string())
+        .into_bytes()
+}
 
 pub fn create_jwt(user: &DbUser) -> Result<String, jsonwebtoken::errors::Error> {
     let expiration = Utc::now()
@@ -19,14 +23,21 @@ pub fn create_jwt(user: &DbUser) -> Result<String, jsonwebtoken::errors::Error> 
         iat: Utc::now().timestamp() as usize,
     };
 
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(JWT_SECRET.as_ref()))
+    let secret = jwt_secret_bytes();
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(&secret),
+    )
 }
 
 pub fn verify_jwt(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
+    let secret = jwt_secret_bytes();
+    let validation = Validation::new(Algorithm::HS256);
     let token_data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(JWT_SECRET.as_ref()),
-        &Validation::default(),
+        &DecodingKey::from_secret(&secret),
+        &validation,
     )?;
 
     Ok(token_data.claims)

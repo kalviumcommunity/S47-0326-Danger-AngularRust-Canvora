@@ -26,8 +26,7 @@ import { ErrorService } from './error.service';
           <input id="password" type="password" formControlName="password">
           <div *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched" style="color:red;font-size:12px;">
             <div *ngIf="loginForm.get('password')?.errors?.['required']">Password is required</div>
-            <div *ngIf="loginForm.get('password')?.errors?.['minlength']">Password must be at least 8 characters</div>
-            <div *ngIf="loginForm.get('password')?.errors?.['pattern']">Password must contain uppercase, lowercase, number, and special character</div>
+            <div *ngIf="loginForm.get('password')?.errors?.['minlength']">Password must be at least 6 characters</div>
           </div>
         </div>
         <button type="submit" [disabled]="loginForm.invalid || isLoading">Login</button>
@@ -38,11 +37,7 @@ import { ErrorService } from './error.service';
 export class LoginComponent {
   loginForm = new FormGroup({
     username: new FormControl('', [Validators.required, Validators.email]),
-    password: new FormControl('', [
-      Validators.required,
-      Validators.minLength(8),
-      Validators.pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    ])
+    password: new FormControl('', [Validators.required, Validators.minLength(6)])
   });
 
   isLoading = false;

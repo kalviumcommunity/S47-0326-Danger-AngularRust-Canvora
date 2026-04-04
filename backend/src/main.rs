@@ -27,6 +27,7 @@ use ws::{ws_handler, WsHub};
 
 #[derive(Debug)]
 pub enum AppError {
+    Unauthorized(String),
     NotFound(String),
     ValidationError(String),
     InternalError(String),
@@ -35,6 +36,7 @@ pub enum AppError {
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            AppError::Unauthorized(msg) => write!(f, "Unauthorized: {}", msg),
             AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
             AppError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
             AppError::InternalError(msg) => write!(f, "Internal error: {}", msg),
@@ -52,6 +54,7 @@ impl actix_web::error::ResponseError for AppError {
         };
 
         match self {
+            AppError::Unauthorized(_) => HttpResponse::Unauthorized().json(error_response),
             AppError::NotFound(_) => HttpResponse::NotFound().json(error_response),
             AppError::ValidationError(_) => HttpResponse::BadRequest().json(error_response),
             AppError::InternalError(_) => HttpResponse::InternalServerError().json(error_response),
@@ -118,14 +121,14 @@ fn validate_jwt(token: &str) -> Result<Claims, JwtError> {
     Ok(token_data.claims)
 }
 
-async fn extract_user_id_from_request(req: &HttpRequest, state: &Data<AppState>) -> Result<String, AppError> {
+async fn extract_user_id_from_request(req: &HttpRequest) -> Result<String, AppError> {
     let auth_header = req.headers().get("Authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
-        .ok_or_else(|| AppError::ValidationError("Missing or invalid Authorization header".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("Missing or invalid Authorization header".to_string()))?;
 
     let claims = validate_jwt(auth_header)
-        .map_err(|_| AppError::ValidationError("Invalid token".to_string()))?;
+        .map_err(|_| AppError::Unauthorized("Invalid or expired token".to_string()))?;
 
     Ok(claims.sub)
 }
@@ -242,11 +245,17 @@ async fn get_boards(state: Data<AppState>, query: web::Query<PaginationParams>) 
 }
 
 #[post("/boards")]
-async fn create_board(state: Data<AppState>, req: web::Json<CreateBoardRequest>) -> Result<impl Responder, AppError> {
+async fn create_board(
+    http_req: HttpRequest,
+    state: Data<AppState>,
+    req: web::Json<CreateBoardRequest>,
+) -> Result<impl Responder, AppError> {
     req.validate().map_err(AppError::ValidationError)?;
 
+    let owner_id = extract_user_id_from_request(&http_req).await?;
+
     let repo = state.repositories.board_repository();
-    let board = Board::new(req.name.clone(), "user-1".to_string(), req.is_public);
+    let board = Board::new(req.name.clone(), owner_id, req.is_public);
     let db_board: DbBoard = board.clone().into();
 
     let saved_board = repo.save(db_board).await
@@ -332,7 +341,7 @@ async fn register(state: Data<AppState>, req: web::Json<RegisterRequest>) -> Res
 }
 
 #[post("/auth/login")]
-async fn login(state: Data<AppState>, req: web::Json<LoginRequest>) -> Result<impl Responder, AppError> {
+async fn auth_login(state: Data<AppState>, req: web::Json<LoginRequest>) -> Result<impl Responder, AppError> {
     let repo = state.repositories.user_repository();
 
     // Find user by email
@@ -361,7 +370,7 @@ async fn login(state: Data<AppState>, req: web::Json<LoginRequest>) -> Result<im
 
 #[get("/auth/me")]
 async fn get_me(req: HttpRequest, state: Data<AppState>) -> Result<impl Responder, AppError> {
-    let user_id = extract_user_id_from_request(&req, &state).await?;
+    let user_id = extract_user_id_from_request(&req).await?;
     let uuid = sqlx::types::Uuid::parse_str(&user_id)
         .map_err(|_| AppError::ValidationError("Invalid user ID".to_string()))?;
 
@@ -430,6 +439,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_state)
             .service(register)
             .service(login)
+            .service(auth_login)
             .service(get_me)
             .service(add_draw)
             .service(add_draw_batch)

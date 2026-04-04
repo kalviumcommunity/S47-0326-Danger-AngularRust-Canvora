@@ -55,7 +55,11 @@ impl Actor for BoardWsSession {
             loop {
                 match act.rx.try_recv() {
                     Ok(bytes) => {
-                        if ctx.binary(bytes.as_ref().to_vec()).is_err() {
+                        let send_ok = match std::str::from_utf8(bytes.as_ref()) {
+                            Ok(s) => ctx.text(s).is_ok(),
+                            Err(_) => ctx.binary(bytes.as_ref().to_vec()).is_ok(),
+                        };
+                        if !send_ok {
                             ctx.stop();
                             return;
                         }

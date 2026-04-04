@@ -6,6 +6,7 @@ import { RepositoryFactory } from './repositories/repository.factory';
 import { Board, CreateBoardRequest } from './models/board-models';
 import { DrawPoint, DrawSegment } from './models/draw-models';
 import { WhiteboardStateService } from './whiteboard-state.service';
+import { AuthService } from './auth.service';
 import { Subject, Subscription, asyncScheduler } from 'rxjs';
 import { throttleTime } from 'rxjs/operators';
 
@@ -109,7 +110,8 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
 
   constructor(
     private whiteboardState: WhiteboardStateService,
-    private repositories: RepositoryFactory
+    private repositories: RepositoryFactory,
+    private authService: AuthService
   ) {}
 
   ngAfterViewInit() {
@@ -183,7 +185,7 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
     this.currentStroke = {
       id: crypto.randomUUID(),
       board_id: boardId,
-      user_id: 'local',
+      user_id: this.authService.currentUser?.id ?? 'anonymous',
       points: [startPoint],
       color: this.penColor,
       width: this.penWidth,
@@ -315,10 +317,13 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
     const newWidth = Math.max(window.innerWidth - 220, 800);
     const newHeight = Math.max(window.innerHeight - 200, 520);
 
-    const imageData = this.ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (canvas.width === newWidth && canvas.height === newHeight) {
+      return;
+    }
+
     canvas.width = newWidth;
     canvas.height = newHeight;
-    this.ctx.putImageData(imageData, 0, 0);
+    this.redrawCanvas(this.whiteboardState.segments);
   };
 
   private loadBoards() {

@@ -39,7 +39,20 @@ export class BoardRealtimeService implements OnDestroy {
       closeObserver: {
         next: () => this.connectionSubject.next('disconnected')
       },
-      deserializer: (e: MessageEvent) => JSON.parse(e.data as string) as BoardRealtimeEnvelope,
+      deserializer: (e: MessageEvent) => {
+        const raw = e.data;
+        let text: string;
+        if (typeof raw === 'string') {
+          text = raw;
+        } else if (raw instanceof ArrayBuffer) {
+          text = new TextDecoder().decode(raw);
+        } else if (ArrayBuffer.isView(raw)) {
+          text = new TextDecoder().decode(raw);
+        } else {
+          text = String(raw);
+        }
+        return JSON.parse(text) as BoardRealtimeEnvelope;
+      },
       serializer: (v: BoardRealtimeEnvelope) => JSON.stringify(v)
     });
 
