@@ -2,6 +2,7 @@ mod models;
 
 use actix_web::{web, App, HttpServer, Responder, HttpResponse};
 use actix_web::get;
+use actix_web::post;
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
 use dotenv::dotenv;
@@ -19,6 +20,20 @@ pub struct HealthResponse {
     pub uptime_seconds: u64,
     pub version: String,
     pub timestamp: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    pub data: Option<T>,
+    pub error: Option<String>,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateBoardRequest {
+    pub name: String,
+    pub is_public: bool,
 }
 
 #[derive(Clone)]
@@ -55,9 +70,62 @@ async fn add_draw(state: Data<AppState>, item: web::Json<DrawSegment>) -> impl R
     HttpResponse::Ok().json(&*board)
 }
 
-// WebSocket handler placeholder
+#[post("/draw/batch")]
+async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>>) -> impl Responder {
+    let mut board = state.board.lock().unwrap();
+    let mut added_count = 0;
+    for item in items.into_inner() {
+        board.push(item);
+        added_count += 1;
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "added_count": added_count,
+        "total_segments": board.len()
+    }))
+}
+
+#[get("/boards")]
+async fn get_boards(state: Data<AppState>) -> impl Responder {
+    let boards = state.boards.lock().unwrap();
+    HttpResponse::Ok().json(&*boards)
+}
+
+#[post("/boards")]
+async fn create_board(state: Data<AppState>, req: web::Json<CreateBoardRequest>) -> impl Responder {
+    let mut boards = state.boards.lock().unwrap();
+    let board = Board::new(req.name.clone(), "user-1".to_string(), req.is_public);
+    boards.push(board.clone());
+    HttpResponse::Created().json(board)
+}
+
+#[get("/boards/{id}")]
+async fn get_board(state: Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let board_id = path.into_inner();
+    let boards = state.boards.lock().unwrap();
+    let board = boards.iter().find(|b| b.id == board_id);
+
+    match board {
+        Some(b) => HttpResponse::Ok().json(b),
+        None => HttpResponse::NotFound().json(ApiResponse::<()> {
+            success: false,
+            data: None,
+            error: Some("Board not found".to_string()),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+        }),
+    }
+}
+
+#[get("/boards/{id}/drawings")]
+async fn get_board_drawings(state: Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let board_id = path.into_inner();
+    let drawings = state.board.lock().unwrap();
+    let board_drawings: Vec<&DrawSegment> = drawings.iter().filter(|d| d.board_id == board_id).collect();
+    HttpResponse::Ok().json(board_drawings)
+}
+
 async fn ws_handler() -> impl Responder {
-    HttpResponse::Ok().body("WebSocket endpoint")
+    HttpResponse::Ok().body("WebSocket endpoint - TODO")
 }
 
 #[actix_web::main]
@@ -72,6 +140,8 @@ async fn main() -> std::io::Result<()> {
 
     let app_state = Data::new(AppState {
         board: Arc::new(Mutex::new(Vec::new())),
+        boards: Arc::new(Mutex::new(Vec::new())),
+        users: Arc::new(Mutex::new(Vec::new())),
         start_time: SystemTime::now(),
     });
 
@@ -82,6 +152,11 @@ async fn main() -> std::io::Result<()> {
             .service(health)
             .service(get_state)
             .service(add_draw)
+            .service(add_draw_batch)
+            .service(get_boards)
+            .service(create_board)
+            .service(get_board)
+            .service(get_board_drawings)
             .route("/ws", web::get().to(ws_handler))
     })
     .bind(addr)?
