@@ -1,5 +1,6 @@
 mod models;
 mod migrations;
+mod repository;
 
 use actix_web::{web, App, HttpServer, Responder, HttpResponse, post, get, Error as ActixError};
 use actix_web::middleware::Logger;
@@ -77,6 +78,7 @@ pub struct CreateBoardRequest {
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
+    pub repositories: repository::RepositoryFactory,
     pub start_time: SystemTime,
 }
 
@@ -97,9 +99,8 @@ async fn health(state: Data<AppState>) -> impl Responder {
 
 #[get("/state")]
 async fn get_state(state: Data<AppState>) -> Result<impl Responder, AppError> {
-    let drawings = sqlx::query_as::<_, DbDrawSegment>("SELECT * FROM draw_segments ORDER BY created_at ASC")
-        .fetch_all(&state.db)
-        .await
+    let repo = state.repositories.draw_segment_repository();
+    let drawings = repo.find_all().await
         .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
 
     let drawings: Vec<DrawSegment> = drawings.into_iter().map(|d| d.into()).collect();
@@ -108,21 +109,11 @@ async fn get_state(state: Data<AppState>) -> Result<impl Responder, AppError> {
 
 #[post("/draw")]
 async fn add_draw(state: Data<AppState>, item: web::Json<DrawSegment>) -> Result<impl Responder, AppError> {
+    let repo = state.repositories.draw_segment_repository();
     let db_segment: DbDrawSegment = item.into_inner().into();
 
-    sqlx::query(
-        "INSERT INTO draw_segments (id, board_id, user_id, points, color, width, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)"
-    )
-    .bind(&db_segment.id)
-    .bind(&db_segment.board_id)
-    .bind(&db_segment.user_id)
-    .bind(&db_segment.points)
-    .bind(&db_segment.color)
-    .bind(&db_segment.width)
-    .bind(&db_segment.created_at)
-    .execute(&state.db)
-    .await
-    .map_err(|e| AppError::InternalError(format!("Failed to save drawing: {}", e)))?;
+    repo.save(db_segment).await
+        .map_err(|e| AppError::InternalError(format!("Failed to save drawing: {}", e)))?;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({"success": true})))
 }
@@ -161,11 +152,29 @@ async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>
     })))
 }
 
+#[post("/draw/batch")]
+async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>>) -> impl Responder {
+    // Validate batch size
+    if items.len() > 1000 {
+        return Err(AppError::ValidationError("Batch size too large (max 1000 segments)".to_string()));
+    }
+
+    let repo = state.repositories.draw_segment_repository();
+    let db_segments: Vec<DbDrawSegment> = items.into_inner().into_iter().map(|s| s.into()).collect();
+
+    let saved_segments = repo.save_batch(db_segments).await
+        .map_err(|e| AppError::InternalError(format!("Failed to save drawing batch: {}", e)))?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "added_count": saved_segments.len()
+    })))
+}
+
 #[get("/boards")]
 async fn get_boards(state: Data<AppState>) -> Result<impl Responder, AppError> {
-    let boards = sqlx::query_as::<_, DbBoard>("SELECT * FROM boards ORDER BY created_at DESC")
-        .fetch_all(&state.db)
-        .await
+    let repo = state.repositories.board_repository();
+    let boards = repo.find_all().await
         .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
 
     let boards: Vec<Board> = boards.into_iter().map(|b| b.into()).collect();
@@ -177,24 +186,15 @@ async fn create_board(state: Data<AppState>, req: web::Json<CreateBoardRequest>)
     // Validate input
     req.validate().map_err(AppError::ValidationError)?;
 
-    // Create board in database
+    // Create board using repository
+    let repo = state.repositories.board_repository();
     let board = Board::new(req.name.clone(), "user-1".to_string(), req.is_public);
     let db_board: DbBoard = board.clone().into();
 
-    sqlx::query(
-        "INSERT INTO boards (id, name, owner_id, created_at, updated_at, is_public) VALUES ($1, $2, $3, $4, $5, $6)"
-    )
-    .bind(&db_board.id)
-    .bind(&db_board.name)
-    .bind(&db_board.owner_id)
-    .bind(&db_board.created_at)
-    .bind(&db_board.updated_at)
-    .bind(&db_board.is_public)
-    .execute(&state.db)
-    .await
-    .map_err(|e| AppError::InternalError(format!("Failed to create board: {}", e)))?;
+    let saved_board = repo.save(db_board).await
+        .map_err(|e| AppError::InternalError(format!("Failed to create board: {}", e)))?;
 
-    Ok(HttpResponse::Created().json(board))
+    Ok(HttpResponse::Created().json(Board::from(saved_board)))
 }
 
 #[get("/boards/{id}")]
@@ -203,15 +203,15 @@ async fn get_board(state: Data<AppState>, path: web::Path<String>) -> Result<imp
     let uuid = sqlx::types::Uuid::parse_str(&board_id)
         .map_err(|_| AppError::ValidationError("Invalid board ID format".to_string()))?;
 
-    let board = sqlx::query_as::<_, DbBoard>("SELECT * FROM boards WHERE id = $1")
-        .bind(&uuid)
-        .fetch_optional(&state.db)
-        .await
+    let repo = state.repositories.board_repository();
+    let board = repo.find_by_id(uuid).await
         .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
 
     match board {
         Some(b) => Ok(HttpResponse::Ok().json(Board::from(b))),
         None => Err(AppError::NotFound(format!("Board with id '{}' not found", board_id))),
+    }
+}
     }
 }
 
@@ -221,10 +221,8 @@ async fn get_board_drawings(state: Data<AppState>, path: web::Path<String>) -> R
     let uuid = sqlx::types::Uuid::parse_str(&board_id)
         .map_err(|_| AppError::ValidationError("Invalid board ID format".to_string()))?;
 
-    let drawings = sqlx::query_as::<_, DbDrawSegment>("SELECT * FROM draw_segments WHERE board_id = $1 ORDER BY created_at ASC")
-        .bind(&uuid)
-        .fetch_all(&state.db)
-        .await
+    let repo = state.repositories.draw_segment_repository();
+    let drawings = repo.find_by_board(uuid).await
         .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
 
     let drawings: Vec<DrawSegment> = drawings.into_iter().map(|d| d.into()).collect();
@@ -268,7 +266,8 @@ async fn main() -> std::io::Result<()> {
     println!("Migrations completed successfully");
 
     let app_state = Data::new(AppState {
-        db,
+        db: db.clone(),
+        repositories: repository::RepositoryFactory::new(db),
         start_time: SystemTime::now(),
     });
 
