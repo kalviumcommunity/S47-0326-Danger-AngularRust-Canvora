@@ -57,6 +57,27 @@ impl From<User> for DbUser {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String, // user id
+    pub email: String,
+    pub exp: usize, // expiration time
+    pub iat: usize, // issued at
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginResponse {
+    pub user: User,
+    pub token: String,
+    pub expires_at: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Board {
     pub id: String,
