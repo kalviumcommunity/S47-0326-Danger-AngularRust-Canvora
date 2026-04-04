@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { Board, BoardPage, CreateBoardRequest } from './models/board-models';
 import { DrawSegment } from './models/draw-models';
+import { ErrorService } from './error.service';
 
 const API_BASE = 'http://127.0.0.1:8080';
 
@@ -10,7 +11,7 @@ const API_BASE = 'http://127.0.0.1:8080';
   providedIn: 'root'
 })
 export class ApiService {
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, private errorService: ErrorService) {}
 
   getBoards(): Observable<BoardPage> {
     return this.http.get<BoardPage>(`${API_BASE}/boards?limit=25`);

@@ -2,7 +2,7 @@ import { AfterViewInit, Component, ElementRef, ViewChild, OnDestroy } from '@ang
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ToolButtonComponent } from './tool-button';
-import { ApiService } from './api.service';
+import { RepositoryFactory } from './repositories/repository.factory';
 import { Board, CreateBoardRequest } from './models/board-models';
 import { DrawPoint, DrawSegment } from './models/draw-models';
 import { WhiteboardStateService } from './whiteboard-state.service';
@@ -102,7 +102,7 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
 
   constructor(
     private whiteboardState: WhiteboardStateService,
-    private api: ApiService
+    private repositories: RepositoryFactory
   ) {}
 
   ngAfterViewInit() {
@@ -206,7 +206,7 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
       this.whiteboardState.addSegment(this.currentStroke);
 
       if (this.currentBoard) {
-        this.api.saveDrawingSegment(this.currentStroke).subscribe({
+        this.repositories.drawings().save(this.currentStroke).subscribe({
           next: () => {},
           error: (err) => console.error('Failed to save drawing segment', err)
         });
@@ -270,7 +270,7 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
   };
 
   private loadBoards() {
-    this.api.getBoards().subscribe({
+    this.repositories.boards().findAll().subscribe({
       next: (boardPage) => {
         this.boards = boardPage.items;
         if (this.boards.length > 0 && !this.currentBoard) {
@@ -291,7 +291,7 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
       this.currentBoard = board;
       this.errorMessage = '';
       // Load drawings for this board
-      this.api.getBoardDrawings(boardId).subscribe({
+      this.repositories.drawings().findByBoard(boardId).subscribe({
         next: (drawings) => {
           this.whiteboardState.setSegments(drawings);
         },
@@ -314,7 +314,7 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
       is_public: false
     };
 
-    this.api.createBoard(request).subscribe({
+    this.repositories.boards().create(request).subscribe({
       next: (board) => {
         this.boards.push(board);
         this.selectedBoardId = board.id;
