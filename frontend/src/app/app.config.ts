@@ -6,13 +6,14 @@ import { routes } from './app.routes';
 import { GlobalErrorHandler } from './global-error-handler';
 import { LoadingInterceptor } from './loading.interceptor';
 import { ErrorInterceptor } from './error.interceptor';
+import { AuthInterceptor } from './auth.interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideRouter(routes),
     provideHttpClient(
-      withInterceptors([LoadingInterceptor, ErrorInterceptor])
+      withInterceptors([AuthInterceptor, LoadingInterceptor, ErrorInterceptor])
     ),
     {
       provide: ErrorHandler,
