@@ -4,6 +4,7 @@ export const routes: Routes = [
   { path: '', redirectTo: 'whiteboard', pathMatch: 'full' },
   {
     path: 'login',
+    data: { preload: true },
     loadChildren: () => import('./login.module').then(m => m.LoginModule)
   },
   {
