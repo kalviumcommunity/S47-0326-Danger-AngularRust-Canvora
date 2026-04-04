@@ -1,19 +1,6 @@
-export interface Board {
-  id: string;
-  name: string;
-  owner_id: string;
-  created_at: number;
-  updated_at: number;
-  is_public: boolean;
-}
+import type { Board, CreateBoardRequest, PaginatedBoardsResponse } from '../../core/api-types';
 
-export interface CreateBoardRequest {
-  name: string;
-  is_public: boolean;
-}
+export type { Board, CreateBoardRequest };
 
-export interface BoardPage {
-  items: Board[];
-  next_cursor?: string;
-  limit: number;
-}
+/** Cursor page of boards (Rust: PaginatedBoardsResponse). */
+export type BoardPage = PaginatedBoardsResponse;

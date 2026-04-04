@@ -71,13 +71,6 @@ pub struct PaginationParams {
     pub limit: Option<u32>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct PaginatedBoardsResponse {
-    pub items: Vec<Board>,
-    pub next_cursor: Option<String>,
-    pub limit: u32,
-}
-
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -97,7 +90,7 @@ fn build_cors() -> Cors {
         .max_age(3600)
 }
 
-fn generate_jwt(user_id: &str) -> Result<String, JwtError> {
+fn generate_jwt(user_id: &str, email: &str) -> Result<String, JwtError> {
     let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| "default_secret".to_string());
     let expiration = Utc::now()
         .checked_add_signed(chrono::Duration::hours(24))
@@ -106,6 +99,7 @@ fn generate_jwt(user_id: &str) -> Result<String, JwtError> {
 
     let claims = Claims {
         sub: user_id.to_owned(),
+        email: email.to_owned(),
         exp: expiration,
         iat: Utc::now().timestamp() as usize,
     };
@@ -211,7 +205,7 @@ async fn login(state: Data<AppState>, req: web::Json<LoginRequest>) -> Result<im
     let expires_at = (Utc::now() + Duration::hours(24)).timestamp() as u64;
     let user = User::from(db_user);
 
-    let response = LoginResponse {
+    let response = AuthResponse {
         user,
         token,
         expires_at,
@@ -322,7 +316,7 @@ async fn register(state: Data<AppState>, req: web::Json<RegisterRequest>) -> Res
         .map_err(|e| AppError::InternalError(format!("Failed to create user: {}", e)))?;
 
     let user = User::from(db_user);
-    let token = generate_jwt(&user.id)
+    let token = generate_jwt(&user.id, &user.email)
         .map_err(|_| AppError::InternalError("Failed to generate token".to_string()))?;
 
     let expires_at = (Utc::now() + chrono::Duration::hours(24)).timestamp() as u64;
@@ -350,7 +344,7 @@ async fn login(state: Data<AppState>, req: web::Json<LoginRequest>) -> Result<im
     }
 
     let user = User::from(db_user);
-    let token = generate_jwt(&user.id)
+    let token = generate_jwt(&user.id, &user.email)
         .map_err(|_| AppError::InternalError("Failed to generate token".to_string()))?;
 
     let expires_at = (Utc::now() + chrono::Duration::hours(24)).timestamp() as u64;
