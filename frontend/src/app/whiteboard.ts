@@ -1,6 +1,9 @@
 import { AfterViewInit, Component, ElementRef, ViewChild, OnDestroy } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ToolButtonComponent } from './tool-button';
+import { ApiService } from './api.service';
+import { Board, CreateBoardRequest } from './models/board-models';
 import { DrawPoint, DrawSegment } from './models/draw-models';
 import { WhiteboardStateService } from './whiteboard-state.service';
 import { Subscription } from 'rxjs';
@@ -8,11 +11,28 @@ import { Subscription } from 'rxjs';
 @Component({
   selector: 'app-whiteboard',
   standalone: true,
-  imports: [FormsModule, ToolButtonComponent],
+  imports: [CommonModule, FormsModule, ToolButtonComponent],
   template: `
     <div class="whiteboard-app">
       <aside class="toolbar">
         <h3>Tools</h3>
+
+        <div class="board-shell">
+          <label>
+            Board:
+            <select [(ngModel)]="selectedBoardId" (ngModelChange)="onBoardSelected($event)">
+              <option *ngFor="let board of boards" [value]="board.id">{{ board.name }}</option>
+            </select>
+          </label>
+          <div class="board-creator">
+            <input type="text" placeholder="New board name" [(ngModel)]="boardName" />
+            <button type="button" (click)="createNewBoard()">Create</button>
+          </div>
+        </div>
+
+        <p class="current-board">Current board: {{ currentBoard?.name || 'None' }}</p>
+        <p *ngIf="errorMessage" class="error">{{ errorMessage }}</p>
+
         <app-tool-button label="Clear" [action]="clearCanvas"></app-tool-button>
         <app-tool-button label="Reset" [action]="resetBoard"></app-tool-button>
         <label>Color: <input type="color" [(ngModel)]="penColor" (ngModelChange)="onColorChange($event)" /></label>
@@ -74,8 +94,16 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
   private lastY = 0;
   private currentStroke: DrawSegment | null = null;
   private subscriptions: Subscription[] = [];
+  boards: Board[] = [];
+  currentBoard: Board | null = null;
+  selectedBoardId = '';
+  boardName = 'New board';
+  errorMessage = '';
 
-  constructor(private whiteboardState: WhiteboardStateService) {}
+  constructor(
+    private whiteboardState: WhiteboardStateService,
+    private api: ApiService
+  ) {}
 
   ngAfterViewInit() {
     const canvas = this.canvasRef.nativeElement;
@@ -94,6 +122,8 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
     canvas.addEventListener('pointerup', this.endDraw);
     canvas.addEventListener('pointercancel', this.endDraw);
     canvas.addEventListener('pointerleave', this.endDraw);
+
+    this.loadBoards();
 
     // Subscribe to state changes
     this.subscriptions.push(
@@ -127,12 +157,16 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
     canvas.setPointerCapture(event.pointerId);
 
     const startPoint: DrawPoint = { x: event.offsetX, y: event.offsetY };
+    const boardId = this.currentBoard?.id ?? 'local';
+
     this.currentStroke = {
       id: crypto.randomUUID(),
-      userId: 'local',
+      board_id: boardId,
+      user_id: 'local',
       points: [startPoint],
       color: this.penColor,
-      width: this.penWidth
+      width: this.penWidth,
+      created_at: Date.now()
     };
 
     this.lastX = startPoint.x;
@@ -170,6 +204,14 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
 
     if (this.currentStroke) {
       this.whiteboardState.addSegment(this.currentStroke);
+
+      if (this.currentBoard) {
+        this.api.saveDrawingSegment(this.currentStroke).subscribe({
+          next: () => {},
+          error: (err) => console.error('Failed to save drawing segment', err)
+        });
+      }
+
       this.currentStroke = null;
     }
 
@@ -226,4 +268,64 @@ export class WhiteboardComponent implements AfterViewInit, OnDestroy {
     canvas.height = newHeight;
     this.ctx.putImageData(imageData, 0, 0);
   };
+
+  private loadBoards() {
+    this.api.getBoards().subscribe({
+      next: (boardPage) => {
+        this.boards = boardPage.items;
+        if (this.boards.length > 0 && !this.currentBoard) {
+          this.selectedBoardId = this.boards[0].id;
+          this.onBoardSelected(this.boards[0].id);
+        }
+      },
+      error: (err) => {
+        console.error('Failed to load boards', err);
+        this.errorMessage = 'Failed to load boards';
+      }
+    });
+  }
+
+  onBoardSelected(boardId: string) {
+    const board = this.boards.find(b => b.id === boardId);
+    if (board) {
+      this.currentBoard = board;
+      this.errorMessage = '';
+      // Load drawings for this board
+      this.api.getBoardDrawings(boardId).subscribe({
+        next: (drawings) => {
+          this.whiteboardState.setSegments(drawings);
+        },
+        error: (err) => {
+          console.error('Failed to load drawings', err);
+          this.errorMessage = 'Failed to load drawings';
+        }
+      });
+    }
+  }
+
+  createNewBoard() {
+    if (!this.boardName.trim()) {
+      this.errorMessage = 'Board name cannot be empty';
+      return;
+    }
+
+    const request: CreateBoardRequest = {
+      name: this.boardName.trim(),
+      is_public: false
+    };
+
+    this.api.createBoard(request).subscribe({
+      next: (board) => {
+        this.boards.push(board);
+        this.selectedBoardId = board.id;
+        this.onBoardSelected(board.id);
+        this.boardName = 'New board';
+        this.errorMessage = '';
+      },
+      error: (err) => {
+        console.error('Failed to create board', err);
+        this.errorMessage = 'Failed to create board';
+      }
+    });
+  }
 }

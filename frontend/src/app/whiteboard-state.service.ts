@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { DrawSegment, DrawPoint } from './models/draw-models';
+import { ApiService } from './api.service';
 
 export interface PenSettings {
   color: string;
@@ -20,7 +21,7 @@ export class WhiteboardStateService {
   });
   public penSettings$ = this.penSettingsSubject.asObservable();
 
-  constructor() {
+  constructor(private apiService: ApiService) {
     // Load from localStorage or initialize
     this.loadState();
   }
@@ -28,6 +29,16 @@ export class WhiteboardStateService {
   addSegment(segment: DrawSegment): void {
     const current = this.segmentsSubject.value;
     this.segmentsSubject.next([...current, segment]);
+    this.saveState();
+    // Save to API
+    this.apiService.saveDrawingSegment(segment).subscribe({
+      next: () => console.log('Segment saved to API'),
+      error: (err) => console.error('Failed to save segment to API', err)
+    });
+  }
+
+  setSegments(segments: DrawSegment[]): void {
+    this.segmentsSubject.next(segments);
     this.saveState();
   }
 
@@ -41,6 +52,10 @@ export class WhiteboardStateService {
   clearSegments(): void {
     this.segmentsSubject.next([]);
     this.saveState();
+  }
+
+  loadDrawingsForBoard(boardId: string): Observable<DrawSegment[]> {
+    return this.apiService.getBoardDrawings(boardId);
   }
 
   get segments(): DrawSegment[] {

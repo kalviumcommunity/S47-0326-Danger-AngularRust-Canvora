@@ -2,26 +2,27 @@ mod models;
 mod migrations;
 mod repository;
 
-use actix_web::{web, App, HttpServer, Responder, HttpResponse, post, get, Error as ActixError};
-use actix_web::middleware::Logger;
+use actix_cors::Cors;
+use actix_web::{http::header, web, App, HttpServer, Responder, HttpResponse, post, get};
+use actix_web::middleware::{DefaultHeaders, Logger};
 use actix_web::web::Data;
-use actix_web::http::StatusCode;
+use chrono::{DateTime, Utc};
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::env;
 use std::fmt;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use models::*;
 use migrations::*;
+use repository::*;
 
 #[derive(Debug)]
 pub enum AppError {
     NotFound(String),
     ValidationError(String),
     InternalError(String),
-    LockError(String),
 }
 
 impl fmt::Display for AppError {
@@ -30,7 +31,6 @@ impl fmt::Display for AppError {
             AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
             AppError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
             AppError::InternalError(msg) => write!(f, "Internal error: {}", msg),
-            AppError::LockError(msg) => write!(f, "Lock error: {}", msg),
         }
     }
 }
@@ -48,7 +48,6 @@ impl actix_web::error::ResponseError for AppError {
             AppError::NotFound(_) => HttpResponse::NotFound().json(error_response),
             AppError::ValidationError(_) => HttpResponse::BadRequest().json(error_response),
             AppError::InternalError(_) => HttpResponse::InternalServerError().json(error_response),
-            AppError::LockError(_) => HttpResponse::InternalServerError().json(error_response),
         }
     }
 }
@@ -61,25 +60,36 @@ pub struct HealthResponse {
     pub timestamp: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ApiResponse<T> {
-    pub success: bool,
-    pub data: Option<T>,
-    pub error: Option<String>,
-    pub timestamp: u64,
+#[derive(Debug, Deserialize)]
+pub struct PaginationParams {
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateBoardRequest {
-    pub name: String,
-    pub is_public: bool,
+#[derive(Debug, Serialize)]
+pub struct PaginatedBoardsResponse {
+    pub items: Vec<Board>,
+    pub next_cursor: Option<String>,
+    pub limit: u32,
 }
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
-    pub repositories: repository::RepositoryFactory,
+    pub repositories: RepositoryFactory,
     pub start_time: SystemTime,
+}
+
+fn build_cors() -> Cors {
+    let cors_origin = env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| "http://localhost:4200".to_string());
+
+    Cors::default()
+        .allowed_origin(&cors_origin)
+        .allowed_methods(["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+        .allowed_headers([header::AUTHORIZATION, header::ACCEPT, header::CONTENT_TYPE])
+        .expose_headers([header::LINK])
+        .supports_credentials()
+        .max_age(3600)
 }
 
 #[get("/health")]
@@ -120,41 +130,6 @@ async fn add_draw(state: Data<AppState>, item: web::Json<DrawSegment>) -> Result
 
 #[post("/draw/batch")]
 async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>>) -> Result<impl Responder, AppError> {
-    // Validate batch size
-    if items.len() > 1000 {
-        return Err(AppError::ValidationError("Batch size too large (max 1000 segments)".to_string()));
-    }
-
-    let mut added_count = 0;
-    for item in items.into_inner() {
-        let db_segment: DbDrawSegment = item.into();
-
-        sqlx::query(
-            "INSERT INTO draw_segments (id, board_id, user_id, points, color, width, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)"
-        )
-        .bind(&db_segment.id)
-        .bind(&db_segment.board_id)
-        .bind(&db_segment.user_id)
-        .bind(&db_segment.points)
-        .bind(&db_segment.color)
-        .bind(&db_segment.width)
-        .bind(&db_segment.created_at)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::InternalError(format!("Failed to save drawing batch: {}", e)))?;
-
-        added_count += 1;
-    }
-
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "added_count": added_count
-    })))
-}
-
-#[post("/draw/batch")]
-async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>>) -> impl Responder {
-    // Validate batch size
     if items.len() > 1000 {
         return Err(AppError::ValidationError("Batch size too large (max 1000 segments)".to_string()));
     }
@@ -172,21 +147,33 @@ async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>
 }
 
 #[get("/boards")]
-async fn get_boards(state: Data<AppState>) -> Result<impl Responder, AppError> {
+async fn get_boards(state: Data<AppState>, query: web::Query<PaginationParams>) -> Result<impl Responder, AppError> {
+    let cursor_time = match &query.cursor {
+        Some(value) => Some(DateTime::parse_from_rfc3339(value)
+            .map_err(|_| AppError::ValidationError("Invalid cursor format".to_string()))?
+            .with_timezone(&Utc)),
+        None => None,
+    };
+
+    let limit = query.limit.unwrap_or(25).clamp(1, 100) as i64;
     let repo = state.repositories.board_repository();
-    let boards = repo.find_all().await
+    let boards = repo.find_page(cursor_time, limit).await
         .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
 
-    let boards: Vec<Board> = boards.into_iter().map(|b| b.into()).collect();
-    Ok(HttpResponse::Ok().json(boards))
+    let next_cursor = boards.last().map(|board| board.created_at.to_rfc3339());
+    let items: Vec<Board> = boards.into_iter().map(|board| board.into()).collect();
+
+    Ok(HttpResponse::Ok().json(PaginatedBoardsResponse {
+        items,
+        next_cursor,
+        limit: limit as u32,
+    }))
 }
 
 #[post("/boards")]
 async fn create_board(state: Data<AppState>, req: web::Json<CreateBoardRequest>) -> Result<impl Responder, AppError> {
-    // Validate input
     req.validate().map_err(AppError::ValidationError)?;
 
-    // Create board using repository
     let repo = state.repositories.board_repository();
     let board = Board::new(req.name.clone(), "user-1".to_string(), req.is_public);
     let db_board: DbBoard = board.clone().into();
@@ -210,8 +197,6 @@ async fn get_board(state: Data<AppState>, path: web::Path<String>) -> Result<imp
     match board {
         Some(b) => Ok(HttpResponse::Ok().json(Board::from(b))),
         None => Err(AppError::NotFound(format!("Board with id '{}' not found", board_id))),
-    }
-}
     }
 }
 
@@ -248,14 +233,26 @@ async fn main() -> std::io::Result<()> {
 
     println!("Starting server at http://{}", addr);
 
+<<<<<<< HEAD
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/whiteboard".to_string());
+=======
     // Set up database connection
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@localhost/whiteboard".to_string());
+>>>>>>> aa9ae66b088cc8e9f6e30de269beaad9828bcb4d
 
     let db = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
+<<<<<<< HEAD
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to connect to database: {}", e)))?;
+
+    run_migrations(&db)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to run migrations: {}", e)))?;
+=======
         .expect("Failed to connect to database");
 
     println!("Connected to database");
@@ -264,16 +261,23 @@ async fn main() -> std::io::Result<()> {
     println!("Running database migrations...");
     run_migrations(&db).await.expect("Failed to run migrations");
     println!("Migrations completed successfully");
+>>>>>>> aa9ae66b088cc8e9f6e30de269beaad9828bcb4d
 
     let app_state = Data::new(AppState {
         db: db.clone(),
-        repositories: repository::RepositoryFactory::new(db),
+        repositories: RepositoryFactory::new(db),
         start_time: SystemTime::now(),
     });
 
     HttpServer::new(move || {
         App::new()
             .app_data(app_state.clone())
+            .wrap(DefaultHeaders::new()
+                .add((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+                .add((header::X_FRAME_OPTIONS, "DENY"))
+                .add((header::X_XSS_PROTECTION, "1; mode=block"))
+                .add((header::REFERRER_POLICY, "same-origin")))
+            .wrap(build_cors())
             .wrap(Logger::default())
             .service(health)
             .service(get_state)
