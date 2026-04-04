@@ -18,6 +18,7 @@ pub struct DbUser {
     pub id: Uuid,
     pub email: String,
     pub name: String,
+    pub password_hash: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -49,6 +50,7 @@ impl From<User> for DbUser {
             id: Uuid::parse_str(&user.id).unwrap_or_else(|_| Uuid::new_v4()),
             email: user.email,
             name: user.name,
+            password_hash: "".to_string(), // Placeholder, will be set during registration
             created_at,
             updated_at,
         }
@@ -187,6 +189,33 @@ pub struct ApiResponse<T> {
     pub data: Option<T>,
     pub error: Option<String>,
     pub timestamp: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String, // user id
+    pub exp: usize,  // expiration time
+    pub iat: usize,  // issued at
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegisterRequest {
+    pub email: String,
+    pub name: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthResponse {
+    pub user: User,
+    pub token: String,
+    pub expires_at: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

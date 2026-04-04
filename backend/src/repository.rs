@@ -30,7 +30,7 @@ impl Repository<DbUser, sqlx::types::Uuid> for UserRepository {
     async fn find_by_id(&self, id: sqlx::types::Uuid) -> Result<Option<DbUser>> {
         sqlx::query_as!(
             DbUser,
-            "SELECT id, email, name, created_at, updated_at FROM users WHERE id = $1",
+            "SELECT id, email, name, password_hash, created_at, updated_at FROM users WHERE id = $1",
             id
         )
         .fetch_optional(&self.pool)
@@ -40,7 +40,7 @@ impl Repository<DbUser, sqlx::types::Uuid> for UserRepository {
     async fn find_all(&self) -> Result<Vec<DbUser>> {
         sqlx::query_as!(
             DbUser,
-            "SELECT id, email, name, created_at, updated_at FROM users ORDER BY created_at DESC"
+            "SELECT id, email, name, password_hash, created_at, updated_at FROM users ORDER BY created_at DESC"
         )
         .fetch_all(&self.pool)
         .await
@@ -50,13 +50,14 @@ impl Repository<DbUser, sqlx::types::Uuid> for UserRepository {
         sqlx::query_as!(
             DbUser,
             r#"
-            INSERT INTO users (id, email, name, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, email, name, created_at, updated_at
+            INSERT INTO users (id, email, name, password_hash, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, email, name, password_hash, created_at, updated_at
             "#,
             user.id,
             user.email,
             user.name,
+            user.password_hash,
             user.created_at,
             user.updated_at
         )
@@ -69,13 +70,14 @@ impl Repository<DbUser, sqlx::types::Uuid> for UserRepository {
             DbUser,
             r#"
             UPDATE users
-            SET email = $2, name = $3, updated_at = $4
+            SET email = $2, name = $3, password_hash = $4, updated_at = $5
             WHERE id = $1
-            RETURNING id, email, name, created_at, updated_at
+            RETURNING id, email, name, password_hash, created_at, updated_at
             "#,
             user.id,
             user.email,
             user.name,
+            user.password_hash,
             user.updated_at
         )
         .fetch_one(&self.pool)
@@ -101,10 +103,32 @@ impl UserRepository {
     pub async fn find_by_email(&self, email: &str) -> Result<Option<DbUser>> {
         sqlx::query_as!(
             DbUser,
-            "SELECT id, email, name, created_at, updated_at FROM users WHERE email = $1",
+            "SELECT id, email, name, password_hash, created_at, updated_at FROM users WHERE email = $1",
             email
         )
         .fetch_optional(&self.pool)
+        .await
+    }
+
+    pub async fn create_user(&self, email: &str, name: &str, password_hash: &str) -> Result<DbUser> {
+        let now = chrono::Utc::now();
+        let user_id = sqlx::types::Uuid::new_v4();
+
+        sqlx::query_as!(
+            DbUser,
+            r#"
+            INSERT INTO users (id, email, name, password_hash, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, email, name, password_hash, created_at, updated_at
+            "#,
+            user_id,
+            email,
+            name,
+            password_hash,
+            now,
+            now
+        )
+        .fetch_one(&self.pool)
         .await
     }
 }
