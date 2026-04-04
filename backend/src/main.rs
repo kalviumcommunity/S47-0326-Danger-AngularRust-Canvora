@@ -39,6 +39,8 @@ pub struct CreateBoardRequest {
 #[derive(Clone)]
 pub struct AppState {
     pub board: Arc<Mutex<Vec<DrawSegment>>>,
+    pub boards: Arc<Mutex<Vec<Board>>>,
+    pub users: Arc<Mutex<Vec<User>>>,
     pub start_time: SystemTime,
 }
 
