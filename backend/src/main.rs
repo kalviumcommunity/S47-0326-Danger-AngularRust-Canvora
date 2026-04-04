@@ -1,6 +1,7 @@
 mod models;
 mod migrations;
 mod repository;
+mod jwt;
 
 use actix_cors::Cors;
 use actix_web::{http::header, web, App, HttpServer, Responder, HttpResponse, post, get};
@@ -8,7 +9,7 @@ use actix_web::middleware::{DefaultHeaders, Logger};
 use actix_web::web::Data;
 use actix_web::HttpRequest;
 use bcrypt::{hash, verify, DEFAULT_COST};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Duration};
 use dotenv::dotenv;
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, errors::Error as JwtError};
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use models::*;
 use migrations::*;
 use repository::*;
+use jwt::*;
 
 #[derive(Debug)]
 pub enum AppError {
@@ -183,6 +185,39 @@ async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>
         "success": true,
         "added_count": saved_segments.len()
     })))
+}
+
+#[post("/login")]
+async fn login(state: Data<AppState>, req: web::Json<LoginRequest>) -> Result<impl Responder, AppError> {
+    let user_repo = state.repositories.user_repository();
+
+    // Find user by email
+    let db_user = user_repo.find_by_email(&req.email).await
+        .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?
+        .ok_or_else(|| AppError::ValidationError("Invalid credentials".to_string()))?;
+
+    // Verify password
+    let password_valid = verify_password(&req.password, &db_user.password_hash)
+        .map_err(|e| AppError::InternalError(format!("Password verification error: {}", e)))?;
+
+    if !password_valid {
+        return Err(AppError::ValidationError("Invalid credentials".to_string()));
+    }
+
+    // Create JWT token
+    let token = create_jwt(&db_user)
+        .map_err(|e| AppError::InternalError(format!("Token creation error: {}", e)))?;
+
+    let expires_at = (Utc::now() + Duration::hours(24)).timestamp() as u64;
+    let user = User::from(db_user);
+
+    let response = LoginResponse {
+        user,
+        token,
+        expires_at,
+    };
+
+    Ok(HttpResponse::Ok().json(response))
 }
 
 #[get("/boards")]
