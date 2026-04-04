@@ -2,12 +2,7 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { API_BASE_URL } from './api-config';
-
-interface LoginResponse {
-  user: { id: string; email: string; name: string };
-  token: string;
-  expires_at: number;
-}
+import type { AuthResponse } from '../core/api-types';
 
 @Injectable({
   providedIn: 'root'
@@ -30,11 +25,11 @@ export class AuthService {
     this.checkAuth();
   }
 
-  login(email: string, password: string): Observable<LoginResponse> {
-    return this.http.post<LoginResponse>(`${API_BASE_URL}/login`, { email, password });
+  login(email: string, password: string): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${API_BASE_URL}/login`, { email, password });
   }
 
-  setAuthData(response: LoginResponse): void {
+  setAuthData(response: AuthResponse): void {
     localStorage.setItem(this.TOKEN_KEY, response.token);
     localStorage.setItem(this.USER_KEY, JSON.stringify(response.user));
     localStorage.setItem(this.EXPIRES_KEY, response.expires_at.toString());
