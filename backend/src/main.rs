@@ -1,3 +1,5 @@
+mod models;
+
 use actix_web::{web, App, HttpServer, Responder, HttpResponse};
 use actix_web::get;
 use actix_web::middleware::Logger;
@@ -7,29 +9,27 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DrawPoint {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DrawSegment {
-    pub id: String,
-    pub user_id: String,
-    pub points: Vec<DrawPoint>,
-    pub color: String,
-    pub width: f32,
-}
+use models::*;
 
 #[derive(Clone)]
 pub struct AppState {
     pub board: Arc<Mutex<Vec<DrawSegment>>>,
+    pub start_time: SystemTime,
 }
 
 #[get("/health")]
-async fn health() -> impl Responder {
-    HttpResponse::Ok().body("OK")
+async fn health(state: Data<AppState>) -> impl Responder {
+    let now = SystemTime::now();
+    let uptime = now.duration_since(state.start_time).unwrap_or_default().as_secs();
+
+    let health = HealthResponse {
+        status: "healthy".to_string(),
+        uptime_seconds: uptime,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        timestamp: now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+    };
+
+    HttpResponse::Ok().json(health)
 }
 
 #[get("/state")]
@@ -62,6 +62,7 @@ async fn main() -> std::io::Result<()> {
 
     let app_state = Data::new(AppState {
         board: Arc::new(Mutex::new(Vec::new())),
+        start_time: SystemTime::now(),
     });
 
     HttpServer::new(move || {
