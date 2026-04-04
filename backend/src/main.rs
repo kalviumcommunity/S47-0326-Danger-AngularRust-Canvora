@@ -56,6 +56,20 @@ pub struct HealthResponse {
     pub timestamp: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    pub data: Option<T>,
+    pub error: Option<String>,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateBoardRequest {
+    pub name: String,
+    pub is_public: bool,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub board: Arc<Mutex<Vec<DrawSegment>>>,
@@ -112,6 +126,21 @@ async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>
     })))
 }
 
+#[post("/draw/batch")]
+async fn add_draw_batch(state: Data<AppState>, items: web::Json<Vec<DrawSegment>>) -> impl Responder {
+    let mut board = state.board.lock().unwrap();
+    let mut added_count = 0;
+    for item in items.into_inner() {
+        board.push(item);
+        added_count += 1;
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "added_count": added_count,
+        "total_segments": board.len()
+    }))
+}
+
 #[get("/boards")]
 async fn get_boards(state: Data<AppState>) -> Result<impl Responder, AppError> {
     let boards = state.boards.lock().map_err(|_| AppError::LockError("Failed to acquire boards lock".to_string()))?;
@@ -161,9 +190,8 @@ async fn get_board_drawings(state: Data<AppState>, path: web::Path<String>) -> R
     Ok(HttpResponse::Ok().json(board_drawings))
 }
 
-// WebSocket handler placeholder
 async fn ws_handler() -> impl Responder {
-    HttpResponse::Ok().body("WebSocket endpoint")
+    HttpResponse::Ok().body("WebSocket endpoint - TODO")
 }
 
 #[actix_web::main]
