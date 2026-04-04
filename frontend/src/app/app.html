@@ -1,6 +1,7 @@
 ﻿<header style="display:flex; gap:1rem; align-items:center; justify-content:center; padding:1rem;">
   <a routerLink="/whiteboard">Whiteboard</a>
   <a routerLink="/login">Login</a>
+  <button *ngIf="authService.isAuthenticated" (click)="logout()">Logout</button>
 </header>
 
 <main style="padding:1rem;">
