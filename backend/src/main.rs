@@ -1,3 +1,6 @@
+mod models;
+mod migrations;
+
 use actix_web::{web, App, HttpServer, Responder, HttpResponse, post, get, Error as ActixError};
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
@@ -10,6 +13,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use models::*;
+use migrations::*;
 
 #[derive(Debug)]
 pub enum AppError {
@@ -227,8 +231,13 @@ async fn get_board_drawings(state: Data<AppState>, path: web::Path<String>) -> R
     Ok(HttpResponse::Ok().json(drawings))
 }
 
-async fn ws_handler() -> impl Responder {
-    HttpResponse::Ok().body("WebSocket endpoint - TODO")
+#[get("/migrations/status")]
+async fn get_migration_status_endpoint(state: Data<AppState>) -> Result<impl Responder, AppError> {
+    let status = get_migration_status(&state.db)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Failed to get migration status: {}", e)))?;
+
+    Ok(HttpResponse::Ok().json(status))
 }
 
 #[actix_web::main]
@@ -253,6 +262,11 @@ async fn main() -> std::io::Result<()> {
 
     println!("Connected to database");
 
+    // Run database migrations
+    println!("Running database migrations...");
+    run_migrations(&db).await.expect("Failed to run migrations");
+    println!("Migrations completed successfully");
+
     let app_state = Data::new(AppState {
         db,
         start_time: SystemTime::now(),
@@ -270,6 +284,7 @@ async fn main() -> std::io::Result<()> {
             .service(create_board)
             .service(get_board)
             .service(get_board_drawings)
+            .service(get_migration_status_endpoint)
             .route("/ws", web::get().to(ws_handler))
     })
     .bind(addr)?
