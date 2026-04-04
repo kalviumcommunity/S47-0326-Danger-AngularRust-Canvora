@@ -63,6 +63,18 @@ pub struct CreateBoardRequest {
     pub is_public: bool,
 }
 
+impl CreateBoardRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("Board name cannot be empty".to_string());
+        }
+        if self.name.len() > 100 {
+            return Err("Board name too long (max 100 characters)".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoginRequest {
     pub email: String,

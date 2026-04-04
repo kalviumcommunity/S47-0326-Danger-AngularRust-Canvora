@@ -1,10 +1,7 @@
-mod models;
-
-use actix_web::{web, App, HttpServer, Responder, HttpResponse};
-use actix_web::get;
-use actix_web::post;
+use actix_web::{web, App, HttpServer, Responder, HttpResponse, post, get, Error as ActixError};
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
+use actix_web::http::StatusCode;
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -13,6 +10,43 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use models::*;
+
+#[derive(Debug)]
+pub enum AppError {
+    NotFound(String),
+    ValidationError(String),
+    InternalError(String),
+    LockError(String),
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
+            AppError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            AppError::InternalError(msg) => write!(f, "Internal error: {}", msg),
+            AppError::LockError(msg) => write!(f, "Lock error: {}", msg),
+        }
+    }
+}
+
+impl actix_web::error::ResponseError for AppError {
+    fn error_response(&self) -> HttpResponse {
+        let error_response = ApiResponse::<()> {
+            success: false,
+            data: None,
+            error: Some(self.to_string()),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+        };
+
+        match self {
+            AppError::NotFound(_) => HttpResponse::NotFound().json(error_response),
+            AppError::ValidationError(_) => HttpResponse::BadRequest().json(error_response),
+            AppError::InternalError(_) => HttpResponse::InternalServerError().json(error_response),
+            AppError::LockError(_) => HttpResponse::InternalServerError().json(error_response),
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
